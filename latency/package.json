@@ -1,0 +1,15 @@
+{
+  "name": "reflejo-latency",
+  "private": true,
+  "type": "module",
+  "description": "Measures the full Base Sepolia -> Reactive Lasna -> Unichain Sepolia loop",
+  "scripts": {
+    "measure": "node measure.ts"
+  },
+  "engines": {
+    "node": ">=23.6"
+  },
+  "dependencies": {
+    "viem": "^2.58.4"
+  }
+}
