@@ -121,8 +121,8 @@ function send(rpc: string, to: string, sig: string, args: string[]): Hex {
 }
 
 /// Signs now and returns the raw transaction, to publish later in an instant (keystore decryption takes ~1 s).
-function presign(to: string, sig: string, args: string[], nonce: number, gas: number): Hex {
-  const out = cast(["mktx", to, sig, ...args, "--rpc-url", UNI_RPC, "--nonce", String(nonce), "--gas-limit", String(gas)]);
+function presign(rpc: string, to: string, sig: string, args: string[], nonce: number, gas: number): Hex {
+  const out = cast(["mktx", to, sig, ...args, "--rpc-url", rpc, "--nonce", String(nonce), "--gas-limit", String(gas)]);
   const raw = out.split(/\s+/).find((word) => /^0x[0-9a-fA-F]+$/.test(word) && word.length > 200);
   if (!raw) throw new Error(`cast mktx returned no transaction: ${out}`);
   return raw as Hex;
@@ -187,13 +187,11 @@ type Hold = { owner: Hex; time: number; feePaid: number; refSeq: bigint; swapAmo
 const refKey = `(${refToken0},${refToken1},3000,60,${ZERO})`;
 const swapParams = (zeroForOne: boolean, amount: bigint) => `(${zeroForOne},-${amount},${zeroForOne ? MIN_SQRT : MAX_SQRT})`;
 
+const BASE_SWAP_SIG = "swap((address,address,uint24,int24,address),(bool,int256,uint160),(bool,bool),bytes)";
+const baseSwapArgs = (zeroForOne: boolean) => [refKey, swapParams(zeroForOne, raceAmount), "(false,false)", "0x"];
+
 function moveBase(zeroForOne: boolean): Hex {
-  return send(BASE_RPC, BASE_SWAP_ROUTER, "swap((address,address,uint24,int24,address),(bool,int256,uint160),(bool,bool),bytes)", [
-    refKey,
-    swapParams(zeroForOne, raceAmount),
-    "(false,false)",
-    "0x",
-  ]);
+  return send(BASE_RPC, BASE_SWAP_ROUTER, BASE_SWAP_SIG, baseSwapArgs(zeroForOne));
 }
 
 /// Moves Base and waits until the retro hook has the matching reference, so the next case starts clean.
@@ -217,31 +215,46 @@ async function caseA() {
     console.log(`\nCase A, attempt ${attempt}: Base moves down, the bot trades on Unichain before the callback`);
     const holdId = await read<bigint>("holdCount");
     const refBefore = await read<bigint>("refCount", [retroPoolId]);
-    const nonce = await retry(() => uni.getTransactionCount({ address: wallet, blockTag: "pending" }));
+    // Everything is signed before the race starts, so nothing waits on keystore decryption once Base moves.
+    const uniNonce = await retry(() => uni.getTransactionCount({ address: wallet, blockTag: "pending" }));
+    const baseNonce = await retry(() => base.getTransactionCount({ address: wallet, blockTag: "pending" }));
     const retroKey = `(${destToken0},${destToken1},${DYNAMIC_FEE},60,${retroHook})`;
     const v1Key = `(${destToken0},${destToken1},${DYNAMIC_FEE},60,${v1Hook})`;
-    const rawRetro = presign(demoRouter, "swap((address,address,uint24,int24,address),(bool,int256,uint160))", [retroKey, swapParams(true, uniAmount)], nonce, 800_000);
-    const rawV1 = presign(UNI_SWAP_ROUTER, "swap((address,address,uint24,int24,address),(bool,int256,uint160),(bool,bool),bytes)", [v1Key, swapParams(true, uniAmount), "(false,false)", "0x"], nonce + 1, 400_000);
+    const rawRetro = presign(UNI_RPC, demoRouter, "swap((address,address,uint24,int24,address),(bool,int256,uint160))", [retroKey, swapParams(true, uniAmount)], uniNonce, 800_000);
+    const rawV1 = presign(UNI_RPC, UNI_SWAP_ROUTER, BASE_SWAP_SIG, [v1Key, swapParams(true, uniAmount), "(false,false)", "0x"], uniNonce + 1, 400_000);
+    const rawBase = presign(BASE_RPC, BASE_SWAP_ROUTER, BASE_SWAP_SIG, baseSwapArgs(true), baseNonce, 400_000);
     const uniFrom = await retry(() => uni.getBlockNumber());
 
-    const baseTx = moveBase(true);
-    const baseRcpt = await receipt(base, baseTx);
+    const sentAt = Date.now();
+    const baseTx = await base.sendRawTransaction({ serializedTransaction: rawBase });
+    // Base includes it within ~0.5 s. Unichain block timestamps are whole seconds, so publish just after the next
+    // second starts: the swap's block then begins after the move, which is what the hook checks.
+    await sleep(Math.max(0, Math.ceil((sentAt + 450) / 1000) * 1000 + 120 - Date.now()));
+    const [retroTx, v1Tx] = await Promise.all([
+      uni.sendRawTransaction({ serializedTransaction: rawRetro }),
+      uni.sendRawTransaction({ serializedTransaction: rawV1 }),
+    ]);
+    const [baseRcpt, retroRcpt, v1Rcpt] = await Promise.all([receipt(base, baseTx), receipt(uni, retroTx), receipt(uni, v1Tx)]);
     const movedAt = originTimeMs(baseRcpt.blockNumber);
-    // Unichain block timestamps are whole seconds: publish just after the next second starts, so the swap's
-    // block begins after the move on Base.
-    await sleep(Math.max(0, Math.ceil(movedAt / 1000) * 1000 + 150 - Date.now()));
-    const retroTx = await uni.sendRawTransaction({ serializedTransaction: rawRetro });
-    const v1Tx = await uni.sendRawTransaction({ serializedTransaction: rawV1 });
-    const [retroRcpt, v1Rcpt] = await Promise.all([receipt(uni, retroTx), receipt(uni, v1Tx)]);
     const hold = await read<Hold>("getHold", [holdId]);
     const v1Fee = swapFee(v1Rcpt, v1PoolId);
+    // Ahead of the callback: the retro hook had not stored the new reference when the swap ran (same-block order
+    // included). After the move: the swap's block started after the Base block, so the hook may charge it.
     const ahead = hold.refSeq === refBefore && Number(hold.feePaid) === BASE_FEE;
-    console.log(`  Base swap ${baseTx}, v1 swap paid ${v1Fee} pips, retro swap paid ${hold.feePaid} pips`);
+    const afterMove = Number(hold.time) * 1000 >= movedAt;
+    console.log(
+      `  Base swap ${baseTx}, swap ${((Number(hold.time) * 1000 - movedAt) / 1000).toFixed(1)} s after the move; ` +
+        `v1 paid ${v1Fee} pips, retro paid ${hold.feePaid} pips`,
+    );
 
     const ref = await waitForReference(retroHook, retroPoolId, baseTx, uniFrom);
     const callbackBlock = ref.blockNumber;
-    if (!ahead || retroRcpt.blockNumber >= callbackBlock) {
-      console.log("  The callback won this race; resetting Base and trying again.");
+    if (!ahead || !afterMove) {
+      console.log(
+        !ahead
+          ? "  The callback won this race; resetting Base and trying again."
+          : "  The swap landed before the Base block; resetting Base and trying again.",
+      );
       await baseMoveAndSettleIn(false);
       await sleep(9000); // past the hold window: settling now refunds the hold in full
       await settle(holdId).catch(() => undefined);
@@ -249,7 +262,7 @@ async function caseA() {
     }
     const result = await settle(holdId);
     console.log(
-      `  Reference ${ref.args.tick} landed in block ${callbackBlock}, after the swap (block ${retroRcpt.blockNumber}).\n` +
+      `  Reference ${ref.args.tick} landed in block ${callbackBlock} after the swap (block ${retroRcpt.blockNumber}, index ${retroRcpt.transactionIndex}).\n` +
         `  Held ${fmt(hold.amount)} of ${fmt(hold.swapAmount)}; to LPs ${fmt(result.toLPs)}, refunded ${fmt(result.refund)}.`,
     );
     return {
@@ -271,7 +284,7 @@ async function caseA() {
       },
     };
   }
-  throw new Error(`the callback won all ${attempts} races; try again or raise ATTEMPTS`);
+  throw new Error(`no race met both conditions in ${attempts} attempts; run it again or raise ATTEMPTS`);
 }
 
 async function caseB() {

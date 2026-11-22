@@ -151,6 +151,25 @@ alone (1 s resolution): p50 2 s, p95 3 s. Raw data: `latency/results-2026-11-22T
 Contracts: reactive `0x900Cd8B955d88fD7b805eDcA939f0BFB069946bd` (Lasna), hook
 `0x5C7C47e0eA8c509cABF647D13B831b2554c0A080` (Unichain Sepolia). All addresses in `deployments/testnet.env`.
 
+### Retroactive surcharge on testnet (22 Nov 2026)
+
+Retro hook `0xF2B55986DbAbFDEfe9a453379c242A58F88C60c4` (Unichain Sepolia), fed by a second reactive contract
+`0xae77c3F3db27F688431372B41CFcdDd4916386f0` (Lasna) that watches the same Base pool. Each round moves the Base price
+about 100 ticks, then swaps 1 token on Unichain before the callback lands. In all four rounds the swap ran earlier in
+the same Unichain block than the reference, so it paid only the 0.30% base fee; settlement then charged the
+skipped part of the dynamic fee (0.72% for a ~100 tick gap) out of the 1% hold, donated it to in-range LPs and
+refunded the rest. Amounts in tokens:
+
+| Round | Swap and hold | Reference | Tick | Settlement | To LPs | Refunded |
+|---|---|---|---|---|---|---|
+| 1 | [0xd9f20ca8…](https://sepolia.uniscan.xyz/tx/0xd9f20ca8a403c17a03f3152a9ef5c915cf5bb595a4c968f61ccb075cd6a16d8a) | [0x17ad6a0e…](https://sepolia.uniscan.xyz/tx/0x17ad6a0eb3acd7aa77ee92b7b818ad4a449025df3057979349e2c441dbabd3ca) | -100 | [0xcc0423c3…](https://sepolia.uniscan.xyz/tx/0xcc0423c34b4e400302fdc668b3a518c1121758c0759669a414ba64a1f21e91ed) | 0.00419 | 0.00578 |
+| 2 | [0x4d1c50fc…](https://sepolia.uniscan.xyz/tx/0x4d1c50fcca2fd49cf77d91641bfb3741f88686f822ffdeffbdca2b26391495a9) | [0x646fe6d0…](https://sepolia.uniscan.xyz/tx/0x646fe6d07e6e0ed2896a36a897731b22b2df655c2bb1ccb549754757ca1dfda5) | -99 | [0xe3311b77…](https://sepolia.uniscan.xyz/tx/0xe3311b777f54e95bdaa28a0a2e50ffae0d7d460e9124bc671b7433f10e72e307) | 0.00407 | 0.00590 |
+| 3 | [0x5d88c0f9…](https://sepolia.uniscan.xyz/tx/0x5d88c0f9d4e2343a63d1b0a90348949624bd54f279138a894a2ca499229d9d9a) | [0x0501cd06…](https://sepolia.uniscan.xyz/tx/0x0501cd060d5730d6cc81b3ce918ca47eb5450d2298f3535de5fb745a8fe1c170) | -99 | [0xc0c451f6…](https://sepolia.uniscan.xyz/tx/0xc0c451f6e3113cadbe36e9f3fed5b64515fd5774104c64b04c39cdff762941e5) | 0.00407 | 0.00590 |
+| 4 | [0xb1b2e39a…](https://sepolia.uniscan.xyz/tx/0xb1b2e39a501a0ffa7e43908652869cdc5cb9d809fe188358d67851ef8d962575) | [0xb2b5ce63…](https://sepolia.uniscan.xyz/tx/0xb2b5ce636cf730ccf72b20faa811867dac2bfa7d4db87ff80ecd319a29c3a0aa) | -98 | [0x42f0d006…](https://sepolia.uniscan.xyz/tx/0x42f0d0065809d64d009935841b725b4cc5cecc535981244a77f130c6ad118971) | 0.00401 | 0.00596 |
+
+`latency/race.ts` reproduces this and also runs the opposite case: a swap made before the Base move, which gets its
+whole hold back.
+
 ## Status
 
 - [x] Hook and reactive contract, 25 tests passing
@@ -159,4 +178,6 @@ Contracts: reactive `0x900Cd8B955d88fD7b805eDcA939f0BFB069946bd` (Lasna), hook
 - [x] Event → callback loop verified on testnet (22 Nov 2026)
 - [x] Latency script (`latency/measure.ts`)
 - [x] Latency numbers from testnet: p50 1.8 s, p95 2.6 s over 10 rounds
+- [x] Retroactive surcharge charged on testnet, 4 of 4 rounds (22 Nov 2026)
+- [ ] Race demo with the before-the-move case on testnet
 - [ ] Demo video (under 3 minutes)
