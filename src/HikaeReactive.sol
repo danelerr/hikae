@@ -5,12 +5,12 @@ import {AbstractReactive} from "@reactive/src/base/AbstractReactive.sol";
 import {ISystemContract} from "@reactive/src/interfaces/ISystemContract.sol";
 import {IReactive} from "@reactive/src/interfaces/IReactive.sol";
 
-/// @title ReflejoReactive
+/// @title HikaeReactive
 /// @notice Lives on Reactive Network. Listens to Uniswap v4 `Swap` events of a reference pool on the
-/// origin chain and relays the new tick to ReflejoHook on the destination chain. It only sends a
+/// origin chain and relays the new tick to HikaeHook on the destination chain. It only sends a
 /// callback when the tick moved at least `minTickMove` since the last push, so it does not pay for a
 /// callback on every swap.
-contract ReflejoReactive is AbstractReactive {
+contract HikaeReactive is AbstractReactive {
     /// @dev keccak256 of the Uniswap v4 PoolManager `Swap` event. PoolId is encoded as bytes32.
     uint256 public constant SWAP_TOPIC_0 =
         uint256(keccak256("Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)"));

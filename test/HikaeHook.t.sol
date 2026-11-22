@@ -8,9 +8,9 @@ import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
-import {ReflejoHook} from "../src/ReflejoHook.sol";
+import {HikaeHook} from "../src/HikaeHook.sol";
 
-contract ReflejoHookTest is Test, Deployers {
+contract HikaeHookTest is Test, Deployers {
     using PoolIdLibrary for PoolKey;
 
     bytes32 constant SWAP_EVENT = keccak256("Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)");
@@ -22,19 +22,19 @@ contract ReflejoHookTest is Test, Deployers {
 
     address callbackProxy = makeAddr("callbackProxy");
     address reactive = makeAddr("reactive");
-    ReflejoHook hook;
+    HikaeHook hook;
 
     function setUp() public {
         deployFreshManagerAndRouters();
         deployMintAndApprove2Currencies();
 
         address flags = address(uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG) ^ (0x4444 << 144));
-        ReflejoHook.FeeConfig memory config =
-            ReflejoHook.FeeConfig({baseFee: BASE_FEE, captureBps: CAPTURE_BPS, maxFee: MAX_FEE, maxAge: MAX_AGE});
+        HikaeHook.FeeConfig memory config =
+            HikaeHook.FeeConfig({baseFee: BASE_FEE, captureBps: CAPTURE_BPS, maxFee: MAX_FEE, maxAge: MAX_AGE});
         deployCodeTo(
-            "ReflejoHook.sol:ReflejoHook", abi.encode(manager, callbackProxy, reactive, address(this), config), flags
+            "HikaeHook.sol:HikaeHook", abi.encode(manager, callbackProxy, reactive, address(this), config), flags
         );
-        hook = ReflejoHook(payable(flags));
+        hook = HikaeHook(payable(flags));
 
         (key,) = initPoolAndAddLiquidity(
             currency0, currency1, IHooks(address(hook)), LPFeeLibrary.DYNAMIC_FEE_FLAG, SQRT_PRICE_1_1
@@ -103,7 +103,7 @@ contract ReflejoHookTest is Test, Deployers {
 
     function test_updateReferenceRequiresProxy() public {
         PoolId id = key.toId();
-        vm.expectRevert(abi.encodeWithSelector(ReflejoHook.NotCallbackProxy.selector, address(this)));
+        vm.expectRevert(abi.encodeWithSelector(HikaeHook.NotCallbackProxy.selector, address(this)));
         hook.updateReference(reactive, id, -100, 84532, 1, 1, 0);
     }
 
@@ -111,7 +111,7 @@ contract ReflejoHookTest is Test, Deployers {
         PoolId id = key.toId();
         address impostor = makeAddr("impostor");
         vm.prank(callbackProxy);
-        vm.expectRevert(abi.encodeWithSelector(ReflejoHook.NotReactive.selector, impostor));
+        vm.expectRevert(abi.encodeWithSelector(HikaeHook.NotReactive.selector, impostor));
         hook.updateReference(impostor, id, -100, 84532, 1, 1, 0);
     }
 
@@ -124,7 +124,7 @@ contract ReflejoHookTest is Test, Deployers {
 
     function test_onlyProxyCanPull() public {
         vm.deal(address(hook), 1 ether);
-        vm.expectRevert(abi.encodeWithSelector(ReflejoHook.NotCallbackProxy.selector, address(this)));
+        vm.expectRevert(abi.encodeWithSelector(HikaeHook.NotCallbackProxy.selector, address(this)));
         hook.pay(0.1 ether);
 
         vm.prank(callbackProxy);
@@ -133,22 +133,22 @@ contract ReflejoHookTest is Test, Deployers {
     }
 
     function test_invalidFeeConfigReverts() public {
-        vm.expectRevert(ReflejoHook.InvalidFeeConfig.selector);
-        hook.setFeeConfig(ReflejoHook.FeeConfig({baseFee: 5000, captureBps: 1, maxFee: 4000, maxAge: 60}));
+        vm.expectRevert(HikaeHook.InvalidFeeConfig.selector);
+        hook.setFeeConfig(HikaeHook.FeeConfig({baseFee: 5000, captureBps: 1, maxFee: 4000, maxAge: 60}));
     }
 
     function test_onlyOwnerSetsFeeConfig() public {
         vm.prank(makeAddr("stranger"));
-        vm.expectRevert(ReflejoHook.NotOwner.selector);
-        hook.setFeeConfig(ReflejoHook.FeeConfig({baseFee: 1000, captureBps: 1, maxFee: 4000, maxAge: 60}));
+        vm.expectRevert(HikaeHook.NotOwner.selector);
+        hook.setFeeConfig(HikaeHook.FeeConfig({baseFee: 1000, captureBps: 1, maxFee: 4000, maxAge: 60}));
     }
 
     function test_maxFeeAboveCeilingReverts() public {
         uint24 ceiling = hook.MAX_FEE_CEILING();
-        vm.expectRevert(ReflejoHook.InvalidFeeConfig.selector);
-        hook.setFeeConfig(ReflejoHook.FeeConfig({baseFee: 3000, captureBps: 6000, maxFee: ceiling + 1, maxAge: 60}));
+        vm.expectRevert(HikaeHook.InvalidFeeConfig.selector);
+        hook.setFeeConfig(HikaeHook.FeeConfig({baseFee: 3000, captureBps: 6000, maxFee: ceiling + 1, maxAge: 60}));
 
-        hook.setFeeConfig(ReflejoHook.FeeConfig({baseFee: 3000, captureBps: 6000, maxFee: ceiling, maxAge: 60}));
+        hook.setFeeConfig(HikaeHook.FeeConfig({baseFee: 3000, captureBps: 6000, maxFee: ceiling, maxAge: 60}));
         (,, uint24 maxFee,) = hook.feeConfig();
         assertEq(maxFee, ceiling);
     }
@@ -162,8 +162,8 @@ contract ReflejoHookTest is Test, Deployers {
     }
 
     function test_captureOfFullGapIsRejected() public {
-        vm.expectRevert(ReflejoHook.InvalidFeeConfig.selector);
-        hook.setFeeConfig(ReflejoHook.FeeConfig({baseFee: 3000, captureBps: 10_000, maxFee: 30000, maxAge: 60}));
+        vm.expectRevert(HikaeHook.InvalidFeeConfig.selector);
+        hook.setFeeConfig(HikaeHook.FeeConfig({baseFee: 3000, captureBps: 10_000, maxFee: 30000, maxAge: 60}));
     }
 
     /// @dev The fee on the arbitrage leg must stay below the price gap it closes, so closing it is still

@@ -3,7 +3,7 @@ pragma solidity ^0.8.29;
 
 import {console2} from "forge-std/Script.sol";
 import {Signer} from "./Signer.sol";
-import {ReflejoReactive} from "../src/ReflejoReactive.sol";
+import {HikaeReactive} from "../src/HikaeReactive.sol";
 import {Addresses} from "./Addresses.sol";
 
 /// @notice Step 2, Reactive Lasna: deploy the contract that watches the Base pool.
@@ -20,7 +20,7 @@ contract DeployReactive is Signer {
         string memory prefix = vm.envOr("PREFIX", string(""));
 
         vm.startBroadcast();
-        ReflejoReactive reactive = new ReflejoReactive{value: funding}(
+        HikaeReactive reactive = new HikaeReactive{value: funding}(
             Addresses.BASE_SEPOLIA, Addresses.BASE_POOL_MANAGER, refPoolId, Addresses.UNICHAIN_SEPOLIA, minTickMove
         );
         vm.stopBroadcast();

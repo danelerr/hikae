@@ -1,5 +1,5 @@
 {
-  "name": "reflejo-latency",
+  "name": "hikae-latency",
   "private": true,
   "type": "module",
   "description": "Measures the full Base Sepolia -> Reactive Lasna -> Unichain Sepolia loop",

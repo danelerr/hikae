@@ -1,10 +1,12 @@
-# Reflejo
+# Hikae
+
+*Hikae* (控え) is Japanese for what you keep back in reserve.
 
 A Uniswap v4 hook that makes cross-chain arbitrage pay the LPs it takes from, including the arbitrage that lands
 before the price update does.
 
 Reactive Network relays the price of a Base pool to a Unichain pool in about 1.8 seconds. Hooks that raise the fee
-when that update arrives cannot touch the bot that trades in the meantime. Reflejo holds back 1% of every swap for a
+when that update arrives cannot touch the bot that trades in the meantime. Hikae holds back 1% of every swap for a
 few seconds; when the update lands, swaps that traded against the stale price pay the fee they skipped, which goes
 to the LPs, and everyone else gets the hold back.
 
@@ -16,7 +18,7 @@ Reactive Lasna and Unichain Sepolia, with the transactions linked.
 - **Loop latency**, from the Base block to the Unichain block that carries the callback: p50 1.8 s, p95 2.6 s,
   10 of 10 callbacks delivered ([details](#measured-on-testnet-22-nov-2026)).
 - **Arbitrage ahead of the callback**: the same swap, 1.6 s after the Base move, paid 0.30% on a v1 pool and 0.30%
-  plus 0.42% on the Reflejo pool, the 0.42% donated to its LPs after the callback
+  plus 0.42% on the Hikae pool, the 0.42% donated to its LPs after the callback
   ([case A](#race-demo-case-a-latencyrace-2026-11-22t14-36-52-258zjson)); charged in 4 of 4 earlier rounds too.
 - **A swap before the move** got its whole hold back ([case B](#race-demo-case-b-latencyrace-2026-11-22t14-42-46-415zjson)).
 - 40 Foundry tests, including the timing rule and exact-output holds.
@@ -34,10 +36,10 @@ directly gets several chances to trade first and pay the base fee.
 Two projects built for this buildathon already raise a Unichain pool's fee when a Reactive callback reports a price
 move on Base: [FeeReflex](https://github.com/parthpawar1117/feereflex) and
 [Lagless](https://github.com/thesithunyein/lagless). Both document the same limit: an arbitrageur faster than the
-loop pays only the base fee. Reflejo's first contract, `ReflejoHook`, is the same idea, with a fee of the same shape
+loop pays only the base fee. Hikae's first contract, `HikaeHook`, is the same idea, with a fee of the same shape
 (base fee plus a share of the gap above it). It is the base this project builds on, not its contribution.
 
-What Reflejo adds is `ReflejoRetroHook`, which charges the arbitrage that beats the callback:
+What Hikae adds is `HikaeRetroHook`, which charges the arbitrage that beats the callback:
 
 - **Retroactive surcharge.** Every swap leaves 1% of its unspecified amount as ERC-6909 claims for up to 8 s.
   Settlement, which anyone can trigger, donates the skipped fee to in-range LPs and refunds the rest.
@@ -63,27 +65,27 @@ What Reflejo adds is `ReflejoRetroHook`, which charges the arbitrage that beats 
 
 ```
 Base Sepolia                    Reactive Lasna                    Unichain Sepolia
-reference pool ── Swap event ──▶ ReflejoReactive ── callback ───▶ ReflejoHook (v1)
+reference pool ── Swap event ──▶ HikaeReactive ── callback ───▶ HikaeHook (v1)
 (PoolManager)                    subscribes to the pool's         fee from the reference
                                  Swap events, debounces small
-                                 moves, adds the Base block       ReflejoRetroHook
+                                 moves, adds the Base block       HikaeRetroHook
                                  time, requests a callback        v1 fee + 1% hold, settled
                                                                   once the reference lands
 ```
 
-- `src/ReflejoReactive.sol` (Reactive Lasna): subscribes to `Swap` events of one PoolId on the Base Sepolia
+- `src/HikaeReactive.sol` (Reactive Lasna): subscribes to `Swap` events of one PoolId on the Base Sepolia
   PoolManager. When the tick moved at least `minTickMove` since the last push, it requests a callback to the hook
   with the new tick and the origin block and tx hash. If the destination pool lists the pair the other way round,
-  `invertTick` sends the opposite tick, which is the same price there. The deploy scripts always put rUSD as token0
+  `invertTick` sends the opposite tick, which is the same price there. The deploy scripts always put hUSD as token0
   on both chains, so the demo does not need it.
-- `src/ReflejoHook.sol` (Unichain Sepolia): only works with dynamic-fee pools. In `beforeSwap` it compares the
+- `src/HikaeHook.sol` (Unichain Sepolia): only works with dynamic-fee pools. In `beforeSwap` it compares the
   pool's current tick with the reference tick:
   - The swap moves the price toward the reference (arbitrage leg): `fee = baseFee + captureBps × (gap − baseFee)`, so closing the gap stays profitable and part of it goes to LPs,
     capped at `maxFee`, which can never exceed 10% (`MAX_FEE_CEILING`).
   - The swap moves the price away from the reference, or there is no fresh reference (`maxAge`): `baseFee`.
 - Only the Reactive callback proxy can call `updateReference`, and only on behalf of the configured reactive
   contract.
-- `src/ReflejoRetroHook.sol`: covers the arbitrage that lands before the callback, which the fee above
+- `src/HikaeRetroHook.sol`: covers the arbitrage that lands before the callback, which the fee above
   cannot see. It holds back `holdBps` of every swap's unspecified amount (output on exact input, input on exact
   output) as ERC-6909 claims. Anyone can call `settle(holdId)`: if the first reference after the swap landed within
   `window` seconds and the swap traded toward it, the fee the swap skipped is donated to in-range LPs and the rest

@@ -11,7 +11,7 @@ import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiqui
 import {Addresses} from "./Addresses.sol";
 import {PoolSetup} from "./PoolSetup.sol";
 
-/// @notice Step 1, Base Sepolia: the reference pool whose price Reflejo watches.
+/// @notice Step 1, Base Sepolia: the reference pool whose price Hikae watches.
 /// forge script script/01_ReferencePool.s.sol --rpc-url base_sepolia --broadcast
 contract ReferencePool is PoolSetup {
     using PoolIdLibrary for PoolKey;

@@ -11,7 +11,7 @@ import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {Addresses} from "./Addresses.sol";
 
-/// @notice Step 5, Base Sepolia: swap on the reference pool to move its price. This is the event Reflejo reacts to.
+/// @notice Step 5, Base Sepolia: swap on the reference pool to move its price. This is the event Hikae reacts to.
 /// Needs REF_TOKEN0 and REF_TOKEN1. Optional: ZERO_FOR_ONE (default true), AMOUNT in wei (default 50 tokens).
 /// forge script script/05_MovePrice.s.sol --rpc-url base_sepolia --broadcast
 contract MovePrice is Signer {

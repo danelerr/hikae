@@ -11,7 +11,7 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiquidityTest.sol";
 import {HookMiner} from "@uniswap/v4-periphery/test/shared/HookMiner.sol";
-import {ReflejoHook} from "../src/ReflejoHook.sol";
+import {HikaeHook} from "../src/HikaeHook.sol";
 import {Addresses, IDepositTo} from "./Addresses.sol";
 import {PoolSetup} from "./PoolSetup.sol";
 
@@ -27,17 +27,17 @@ contract HookAndPool is PoolSetup {
         address reactive = vm.envAddress("REACTIVE");
         uint256 funding = vm.envOr("HOOK_FUNDING", uint256(0.01 ether));
 
-        ReflejoHook.FeeConfig memory config =
-            ReflejoHook.FeeConfig({baseFee: 3000, captureBps: 6000, maxFee: 30000, maxAge: 120});
+        HikaeHook.FeeConfig memory config =
+            HikaeHook.FeeConfig({baseFee: 3000, captureBps: 6000, maxFee: 30000, maxAge: 120});
         bytes memory args = abi.encode(
             IPoolManager(Addresses.UNICHAIN_POOL_MANAGER), Addresses.UNICHAIN_CALLBACK_PROXY, reactive, deployer, config
         );
         uint160 flags = uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG);
         (address expected, bytes32 salt) =
-            HookMiner.find(Addresses.CREATE2_DEPLOYER, flags, type(ReflejoHook).creationCode, args);
+            HookMiner.find(Addresses.CREATE2_DEPLOYER, flags, type(HikaeHook).creationCode, args);
 
         vm.startBroadcast();
-        ReflejoHook hook = new ReflejoHook{salt: salt}(
+        HikaeHook hook = new HikaeHook{salt: salt}(
             IPoolManager(Addresses.UNICHAIN_POOL_MANAGER), Addresses.UNICHAIN_CALLBACK_PROXY, reactive, deployer, config
         );
         require(address(hook) == expected, "hook address mismatch");

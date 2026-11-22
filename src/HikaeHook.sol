@@ -17,13 +17,13 @@ interface ICallbackProxy {
     function debt(address contract_) external view returns (uint256);
 }
 
-/// @title ReflejoHook
+/// @title HikaeHook
 /// @notice Dynamic-fee hook that charges more only to swaps that trade against a stale price.
 /// A Reactive Network contract watches a reference pool on another chain and pushes its tick here
 /// through a callback. Swaps that move this pool toward the reference price (the arbitrage leg that
 /// extracts value from LPs) pay a fee that grows with the price gap. Swaps in the other direction pay
 /// the base fee.
-contract ReflejoHook is IHooks {
+contract HikaeHook is IHooks {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
 

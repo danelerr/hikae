@@ -4,10 +4,10 @@ pragma solidity ^0.8.29;
 import {Test} from "forge-std/Test.sol";
 import {IReactive} from "@reactive/src/interfaces/IReactive.sol";
 import {AbstractPayer} from "@reactive/src/base/AbstractPayer.sol";
-import {ReflejoReactive} from "../src/ReflejoReactive.sol";
+import {HikaeReactive} from "../src/HikaeReactive.sol";
 import {MockSystem} from "./mocks/MockSystem.sol";
 
-contract ReflejoReactiveTest is Test {
+contract HikaeReactiveTest is Test {
     address constant SYSTEM = 0x8888888888888888888888888888888888888888;
     uint256 constant REACTIVE_IGNORE = 0xa65f96fc951c35ead38878e0f0b7a3c744a6f5ccc1476b313353ce31712313ad;
 
@@ -21,11 +21,11 @@ contract ReflejoReactiveTest is Test {
     uint64 constant CALLBACK_GAS_LIMIT = 250_000;
 
     address hook = makeAddr("hook");
-    ReflejoReactive reactive;
+    HikaeReactive reactive;
 
     function setUp() public {
         vm.etch(SYSTEM, address(new MockSystem()).code);
-        reactive = new ReflejoReactive(
+        reactive = new HikaeReactive(
             ORIGIN_CHAIN, ORIGIN_POOL_MANAGER, ORIGIN_POOL_ID, DESTINATION_CHAIN, MIN_TICK_MOVE
         );
         reactive.setDestination(hook, DESTINATION_POOL_ID, false);
@@ -79,7 +79,7 @@ contract ReflejoReactiveTest is Test {
             REACTIVE_IGNORE,
             REACTIVE_IGNORE
         );
-        new ReflejoReactive(
+        new HikaeReactive(
             ORIGIN_CHAIN, ORIGIN_POOL_MANAGER, ORIGIN_POOL_ID, DESTINATION_CHAIN, MIN_TICK_MOVE
         );
     }
@@ -125,7 +125,7 @@ contract ReflejoReactiveTest is Test {
     }
 
     function test_noCallbackBeforeHookIsSet() public {
-        ReflejoReactive fresh = new ReflejoReactive(
+        HikaeReactive fresh = new HikaeReactive(
             ORIGIN_CHAIN, ORIGIN_POOL_MANAGER, ORIGIN_POOL_ID, DESTINATION_CHAIN, MIN_TICK_MOVE
         );
         IReactive.LogRecord memory log_ = _swapLog(-120, 100);
@@ -142,7 +142,7 @@ contract ReflejoReactiveTest is Test {
 
     function test_onlyOwnerSetsDestination() public {
         vm.prank(makeAddr("stranger"));
-        vm.expectRevert(ReflejoReactive.NotOwner.selector);
+        vm.expectRevert(HikaeReactive.NotOwner.selector);
         reactive.setDestination(address(1), DESTINATION_POOL_ID, false);
     }
 
@@ -165,7 +165,7 @@ contract ReflejoReactiveTest is Test {
 
     function test_onlyOwnerSetsOriginClock() public {
         vm.prank(makeAddr("stranger"));
-        vm.expectRevert(ReflejoReactive.NotOwner.selector);
+        vm.expectRevert(HikaeReactive.NotOwner.selector);
         reactive.setOriginClock(1, 1, 200);
     }
 

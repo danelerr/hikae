@@ -1,5 +1,5 @@
 <#
-Deploys Reflejo on testnet and measures the first Base Sepolia -> Reactive Lasna -> Unichain Sepolia loops.
+Deploys Hikae on testnet and measures the first Base Sepolia -> Reactive Lasna -> Unichain Sepolia loops.
 
 Run it from this folder, in your own terminal:
     pwsh -File .\deploy.ps1
@@ -11,12 +11,15 @@ second run skips the steps that already finished. Use -Fresh to deploy everythin
 
 With -Retro it deploys, next to the v1 pool, a second reactive contract, the retro hook with its pool and a demo
 router, then runs the race demo (latency/race.ts) instead of the latency rounds.
+
+With -Verify it also verifies the contracts on Sourcify, which publishes their source code.
 #>
 param(
     [string]$Account = "wallet-0x75",
     [string]$Sender = "0x75464f762bc50d0A0B127ab5a085504BF102Bb88",
     [int]$Rounds = 10,
     [switch]$Retro,
+    [switch]$Verify,
     [switch]$Fresh
 )
 
@@ -56,12 +59,27 @@ function Invoke-Step([string]$Title, [string]$Script, [string]$Rpc) {
     }
 }
 
+function Invoke-Verify([string]$Address, [string]$Contract, [int]$ChainId) {
+    if (-not $Address) { return }
+    Write-Host "  Sourcify: $Contract at $Address (chain $ChainId)"
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue" # a failed verification must not stop the deploy
+    try {
+        & forge verify-contract --verifier sourcify --chain-id $ChainId $Address $Contract 2>&1 |
+            ForEach-Object { "$_" } | Select-Object -Last 2 | ForEach-Object { Write-Host "    $_" }
+    } catch {
+        Write-Host "    verification failed: $_" -ForegroundColor Yellow
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
 function Get-LasnaBalance {
     [double](& cast balance $Sender --ether --rpc-url $LasnaRpc)
 }
 
 $secure = Read-Host "Password for keystore '$Account'" -AsSecureString
-$passwordFile = Join-Path $env:TEMP ("reflejo-" + [guid]::NewGuid().ToString() + ".tmp")
+$passwordFile = Join-Path $env:TEMP ("hikae-" + [guid]::NewGuid().ToString() + ".tmp")
 try {
     $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
     try {
@@ -98,6 +116,12 @@ try {
         Save-Value "WIRED" "0x1"
     }
 
+    if ($Verify) {
+        Write-Host "`n== Verifying contracts on Sourcify" -ForegroundColor Cyan
+        Invoke-Verify $env:REACTIVE "src/HikaeReactive.sol:HikaeReactive" 5318007
+        Invoke-Verify $env:HOOK "src/HikaeHook.sol:HikaeHook" 1301
+    }
+
     if ($Retro) {
         if (-not $env:RETRO_REACTIVE) {
             $env:PREFIX = "RETRO_"
@@ -112,6 +136,11 @@ try {
             Invoke-Step "R3. Lasna: wire the second reactive contract to the retro hook" "script/04_Wire.s.sol" "lasna"
             Remove-Item Env:PREFIX
             Save-Value "RETRO_WIRED" "0x1"
+        }
+        if ($Verify) {
+            Invoke-Verify $env:RETRO_REACTIVE "src/HikaeReactive.sol:HikaeReactive" 5318007
+            Invoke-Verify $env:RETRO_HOOK "src/HikaeRetroHook.sol:HikaeRetroHook" 1301
+            Invoke-Verify $env:DEMO_ROUTER "test/mocks/MsgSenderRouter.sol:MsgSenderRouter" 1301
         }
         Write-Host "`n== Race demo: arbitrage ahead of the callback, and a swap before the move" -ForegroundColor Cyan
         & node latency/race.ts

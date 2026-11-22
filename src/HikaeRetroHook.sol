@@ -13,10 +13,10 @@ import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {IMsgSender} from "@uniswap/v4-periphery/src/interfaces/IMsgSender.sol";
-import {ReflejoHook} from "./ReflejoHook.sol";
+import {HikaeHook} from "./HikaeHook.sol";
 
-/// @title ReflejoRetroHook
-/// @notice ReflejoHook only charges arbitrage once the reference price has arrived. A bot that sees the move on
+/// @title HikaeRetroHook
+/// @notice HikaeHook only charges arbitrage once the reference price has arrived. A bot that sees the move on
 /// the origin chain and trades here before the Reactive callback lands pays the base fee. This extension holds
 /// back a small share of every swap's unspecified amount (the output on exact-input swaps, the input on
 /// exact-output swaps) for a short window. If the next reference lands inside the window, a swap that traded
@@ -24,7 +24,7 @@ import {ReflejoHook} from "./ReflejoHook.sol";
 /// rest is refunded. With no reference in the window, or a swap in the other direction, all of it is refunded.
 /// @dev Spike for the Reactive Omni buildathon, not audited. Holds are kept as ERC-6909 claims on the
 /// PoolManager and settled one by one through `settle`, so no callback ever loops over holds.
-contract ReflejoRetroHook is ReflejoHook, IUnlockCallback {
+contract HikaeRetroHook is HikaeHook, IUnlockCallback {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
     using CurrencyLibrary for Currency;
@@ -55,8 +55,8 @@ contract ReflejoRetroHook is ReflejoHook, IUnlockCallback {
     uint256 internal constant MAX_HOLD_BPS = 1000;
 
     // Transient slots that carry beforeSwap context into afterSwap.
-    bytes32 internal constant PRE_TICK_SLOT = keccak256("reflejo.retro.preTick");
-    bytes32 internal constant FEE_PAID_SLOT = keccak256("reflejo.retro.feePaid");
+    bytes32 internal constant PRE_TICK_SLOT = keccak256("hikae.retro.preTick");
+    bytes32 internal constant FEE_PAID_SLOT = keccak256("hikae.retro.feePaid");
 
     /// @notice Share of the unspecified amount held back, in bps. Must cover maxFee - baseFee to be fully effective.
     uint16 public immutable holdBps;
@@ -89,7 +89,7 @@ contract ReflejoRetroHook is ReflejoHook, IUnlockCallback {
         uint16 holdBps_,
         uint32 window_,
         uint32 originSkewMs_
-    ) ReflejoHook(poolManager_, callbackProxy_, reactive_, owner_, config_) {
+    ) HikaeHook(poolManager_, callbackProxy_, reactive_, owner_, config_) {
         if (holdBps_ == 0 || holdBps_ > MAX_HOLD_BPS || window_ == 0) revert InvalidHoldConfig();
         holdBps = holdBps_;
         window = window_;

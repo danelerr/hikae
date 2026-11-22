@@ -12,8 +12,8 @@ import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiquidityTest.sol";
 import {HookMiner} from "@uniswap/v4-periphery/test/shared/HookMiner.sol";
 import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
-import {ReflejoHook} from "../src/ReflejoHook.sol";
-import {ReflejoRetroHook} from "../src/ReflejoRetroHook.sol";
+import {HikaeHook} from "../src/HikaeHook.sol";
+import {HikaeRetroHook} from "../src/HikaeRetroHook.sol";
 import {MsgSenderRouter} from "../test/mocks/MsgSenderRouter.sol";
 import {Addresses, IDepositTo} from "./Addresses.sol";
 import {PoolSetup} from "./PoolSetup.sol";
@@ -33,7 +33,7 @@ contract RetroHookAndPool is PoolSetup {
         Currency c1 = Currency.wrap(vm.envAddress("DEST_TOKEN1"));
 
         vm.startBroadcast();
-        ReflejoRetroHook hook = ReflejoRetroHook(payable(_deployHook(deployer)));
+        HikaeRetroHook hook = HikaeRetroHook(payable(_deployHook(deployer)));
         IDepositTo(Addresses.UNICHAIN_CALLBACK_PROXY).depositTo{value: vm.envOr("HOOK_FUNDING", uint256(0.01 ether))}(
             address(hook)
         );
@@ -64,17 +64,17 @@ contract RetroHookAndPool is PoolSetup {
                 | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
         );
         bytes32 salt;
-        (hook, salt) = HookMiner.find(Addresses.CREATE2_DEPLOYER, flags, type(ReflejoRetroHook).creationCode, args);
+        (hook, salt) = HookMiner.find(Addresses.CREATE2_DEPLOYER, flags, type(HikaeRetroHook).creationCode, args);
         (bool ok,) = Addresses.CREATE2_DEPLOYER.call(
-            abi.encodePacked(salt, type(ReflejoRetroHook).creationCode, args)
+            abi.encodePacked(salt, type(HikaeRetroHook).creationCode, args)
         );
         require(ok && hook.code.length > 0, "hook deploy failed");
     }
 
     function _hookArgs(address deployer) internal view returns (bytes memory) {
         // Same fee settings as the v1 hook, so the two pools differ only in the retroactive surcharge.
-        ReflejoHook.FeeConfig memory config =
-            ReflejoHook.FeeConfig({baseFee: 3000, captureBps: 6000, maxFee: 30000, maxAge: 120});
+        HikaeHook.FeeConfig memory config =
+            HikaeHook.FeeConfig({baseFee: 3000, captureBps: 6000, maxFee: 30000, maxAge: 120});
         return abi.encode(
             IPoolManager(Addresses.UNICHAIN_POOL_MANAGER),
             Addresses.UNICHAIN_CALLBACK_PROXY,

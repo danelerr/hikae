@@ -3,12 +3,12 @@ pragma solidity ^0.8.29;
 
 import {console2} from "forge-std/Script.sol";
 import {Signer} from "./Signer.sol";
-import {ReflejoReactive} from "../src/ReflejoReactive.sol";
+import {HikaeReactive} from "../src/HikaeReactive.sol";
 import {Addresses, IDepositTo} from "./Addresses.sol";
 
 /// @notice Step 4, Reactive Lasna: point the reactive contract at the hook and its pool, and add reserves.
 /// Needs REACTIVE, HOOK and DEST_POOL_ID. Optional: RESERVES in wei (default 1 lREACT), and INVERT_TICK=true only
-/// if the destination pool lists the pair in the opposite order (scripts 01 and 03 always put rUSD first).
+/// if the destination pool lists the pair in the opposite order (scripts 01 and 03 always put hUSD first).
 /// The origin clock defaults to Base Sepolia's schedule, checked on 22 Nov 2026 to be exactly 200 ms per block over
 /// the previous 5,000,000 blocks. Override with ORIGIN_ANCHOR_BLOCK, ORIGIN_ANCHOR_TIME_MS and ORIGIN_BLOCK_TIME_MS.
 /// With PREFIX=RETRO_ it reads RETRO_REACTIVE, RETRO_HOOK and RETRO_POOL_ID instead.
@@ -19,7 +19,7 @@ contract Wire is Signer {
         _signer();
         string memory prefix = vm.envOr("PREFIX", string(""));
         bool retro = bytes(prefix).length > 0;
-        ReflejoReactive reactive = ReflejoReactive(payable(vm.envAddress(string.concat(prefix, "REACTIVE"))));
+        HikaeReactive reactive = HikaeReactive(payable(vm.envAddress(string.concat(prefix, "REACTIVE"))));
         address hook = vm.envAddress(string.concat(prefix, "HOOK"));
         bytes32 destPoolId = vm.envBytes32(retro ? string.concat(prefix, "POOL_ID") : "DEST_POOL_ID");
         uint256 reserves = vm.envOr("RESERVES", uint256(1 ether));

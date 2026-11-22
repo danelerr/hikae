@@ -22,8 +22,8 @@ contract TokenOrderTest is Test {
         vm.setNonce(owner, nonce);
         Harness h = new Harness();
         (Currency c0, Currency c1) = h.deployPair(owner);
-        assertEq(MockERC20(Currency.unwrap(c0)).symbol(), "rUSD");
-        assertEq(MockERC20(Currency.unwrap(c1)).symbol(), "rETH");
+        assertEq(MockERC20(Currency.unwrap(c0)).symbol(), "hUSD");
+        assertEq(MockERC20(Currency.unwrap(c1)).symbol(), "hETH");
         assertLt(uint160(Currency.unwrap(c0)), uint160(Currency.unwrap(c1)));
         assertEq(MockERC20(Currency.unwrap(c0)).balanceOf(owner), 1_000_000 ether);
     }

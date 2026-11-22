@@ -13,11 +13,11 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {SwapParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
-import {ReflejoHook} from "../src/ReflejoHook.sol";
-import {ReflejoRetroHook} from "../src/ReflejoRetroHook.sol";
+import {HikaeHook} from "../src/HikaeHook.sol";
+import {HikaeRetroHook} from "../src/HikaeRetroHook.sol";
 import {MsgSenderRouter} from "./mocks/MsgSenderRouter.sol";
 
-contract ReflejoRetroHookTest is Test, Deployers {
+contract HikaeRetroHookTest is Test, Deployers {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
     using CurrencyLibrary for Currency;
@@ -33,7 +33,7 @@ contract ReflejoRetroHookTest is Test, Deployers {
     address callbackProxy = makeAddr("callbackProxy");
     address reactive = makeAddr("reactive");
     address alice = makeAddr("alice");
-    ReflejoRetroHook hook;
+    HikaeRetroHook hook;
     MsgSenderRouter router;
 
     function setUp() public {
@@ -47,14 +47,14 @@ contract ReflejoRetroHookTest is Test, Deployers {
                     | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
             ) ^ (0x4444 << 144)
         );
-        ReflejoHook.FeeConfig memory config =
-            ReflejoHook.FeeConfig({baseFee: BASE_FEE, captureBps: CAPTURE_BPS, maxFee: MAX_FEE, maxAge: MAX_AGE});
+        HikaeHook.FeeConfig memory config =
+            HikaeHook.FeeConfig({baseFee: BASE_FEE, captureBps: CAPTURE_BPS, maxFee: MAX_FEE, maxAge: MAX_AGE});
         deployCodeTo(
-            "ReflejoRetroHook.sol:ReflejoRetroHook",
+            "HikaeRetroHook.sol:HikaeRetroHook",
             abi.encode(manager, callbackProxy, reactive, address(this), config, HOLD_BPS, WINDOW, uint32(0)),
             flags
         );
-        hook = ReflejoRetroHook(payable(flags));
+        hook = HikaeRetroHook(payable(flags));
 
         (key,) = initPoolAndAddLiquidity(
             currency0, currency1, IHooks(address(hook)), LPFeeLibrary.DYNAMIC_FEE_FLAG, SQRT_PRICE_1_1
@@ -96,7 +96,7 @@ contract ReflejoRetroHookTest is Test, Deployers {
         uint256 before1 = currency1.balanceOf(alice);
         _swap(true, -AMOUNT);
 
-        ReflejoRetroHook.Hold memory h = hook.getHold(0);
+        HikaeRetroHook.Hold memory h = hook.getHold(0);
         assertEq(h.owner, alice, "refund goes to the account behind the trusted router");
         assertFalse(h.currencyIs0, "exact input zeroForOne holds token1, the output");
         assertEq(h.preTick, 0);
@@ -106,11 +106,11 @@ contract ReflejoRetroHookTest is Test, Deployers {
         assertEq(_claims(currency1), h.amount, "held as ERC-6909 claims");
     }
 
-    /// @dev The case ReflejoHook (and similar oracle-fee hooks) cannot catch: the arbitrage swap lands before
+    /// @dev The case HikaeHook (and similar oracle-fee hooks) cannot catch: the arbitrage swap lands before
     /// the reference does, so it pays only the base fee. The next reference charges it after the fact.
     function test_arbitrageAheadOfCallbackPaysRetroactively() public {
         _swap(true, -AMOUNT);
-        ReflejoRetroHook.Hold memory h = hook.getHold(0);
+        HikaeRetroHook.Hold memory h = hook.getHold(0);
         assertEq(h.feePaid, BASE_FEE, "the fast bot paid only the base fee");
 
         uint256 movedAt = uint256(h.time) * 1000 - 500; // Base moved 0.5 s before the swap
@@ -135,7 +135,7 @@ contract ReflejoRetroHookTest is Test, Deployers {
 
     function test_otherDirectionIsFullyRefunded() public {
         _swap(false, -AMOUNT);
-        ReflejoRetroHook.Hold memory h = hook.getHold(0);
+        HikaeRetroHook.Hold memory h = hook.getHold(0);
         assertTrue(h.currencyIs0);
 
         vm.warp(block.timestamp + 3);
@@ -149,9 +149,9 @@ contract ReflejoRetroHookTest is Test, Deployers {
 
     function test_noReferenceRefundsAfterWindow() public {
         _swap(true, -AMOUNT);
-        ReflejoRetroHook.Hold memory h = hook.getHold(0);
+        HikaeRetroHook.Hold memory h = hook.getHold(0);
 
-        vm.expectRevert(ReflejoRetroHook.NotSettleable.selector);
+        vm.expectRevert(HikaeRetroHook.NotSettleable.selector);
         hook.settle(0);
 
         vm.warp(block.timestamp + WINDOW + 1);
@@ -162,7 +162,7 @@ contract ReflejoRetroHookTest is Test, Deployers {
 
     function test_referenceAfterWindowDoesNotCharge() public {
         _swap(true, -AMOUNT);
-        ReflejoRetroHook.Hold memory h = hook.getHold(0);
+        HikaeRetroHook.Hold memory h = hook.getHold(0);
 
         vm.warp(block.timestamp + WINDOW + 1);
         _pushReference(-100, uint256(h.time) * 1000 - 500);
@@ -177,7 +177,7 @@ contract ReflejoRetroHookTest is Test, Deployers {
         uint256 before1 = currency1.balanceOf(alice);
         _swap(true, AMOUNT);
 
-        ReflejoRetroHook.Hold memory h = hook.getHold(0);
+        HikaeRetroHook.Hold memory h = hook.getHold(0);
         assertTrue(h.currencyIs0, "exact output zeroForOne holds token0, the input");
         assertEq(currency1.balanceOf(alice) - before1, uint256(AMOUNT), "exact output is delivered");
         assertEq(before0 - currency0.balanceOf(alice), uint256(h.swapAmount) + h.amount, "hold paid on top");
@@ -187,7 +187,7 @@ contract ReflejoRetroHookTest is Test, Deployers {
     function test_swapThatAlreadyPaidIsNotChargedTwice() public {
         _pushReference(-100, block.timestamp * 1000 - 3000);
         _swap(true, -AMOUNT);
-        ReflejoRetroHook.Hold memory h = hook.getHold(0);
+        HikaeRetroHook.Hold memory h = hook.getHold(0);
         assertEq(h.feePaid, 7200, "fresh reference: dynamic fee charged up front");
 
         vm.warp(block.timestamp + 2);
@@ -201,7 +201,7 @@ contract ReflejoRetroHookTest is Test, Deployers {
     /// traded at the right price at the time. Even if it went in the direction of the later move, it pays nothing.
     function test_swapBeforeOriginMoveIsFullyRefunded() public {
         _swap(true, -AMOUNT);
-        ReflejoRetroHook.Hold memory h = hook.getHold(0);
+        HikaeRetroHook.Hold memory h = hook.getHold(0);
 
         uint256 movedAt = uint256(h.time) * 1000 + 400; // Base moved 0.4 s after the swap's block started
         vm.warp(block.timestamp + 3);
@@ -217,7 +217,7 @@ contract ReflejoRetroHookTest is Test, Deployers {
 
     function test_unknownOriginTimeIsRefunded() public {
         _swap(true, -AMOUNT);
-        ReflejoRetroHook.Hold memory h = hook.getHold(0);
+        HikaeRetroHook.Hold memory h = hook.getHold(0);
         vm.warp(block.timestamp + 3);
         _pushReference(-100, 0);
 
@@ -233,7 +233,7 @@ contract ReflejoRetroHookTest is Test, Deployers {
         _swap(true, -AMOUNT);
         vm.warp(block.timestamp + WINDOW + 1);
         hook.settle(0);
-        vm.expectRevert(ReflejoRetroHook.AlreadySettled.selector);
+        vm.expectRevert(HikaeRetroHook.AlreadySettled.selector);
         hook.settle(0);
     }
 
@@ -244,12 +244,12 @@ contract ReflejoRetroHookTest is Test, Deployers {
 
     function test_onlyOwnerTrustsRouters() public {
         vm.prank(alice);
-        vm.expectRevert(ReflejoHook.NotOwner.selector);
+        vm.expectRevert(HikaeHook.NotOwner.selector);
         hook.setTrustedRouter(alice, true);
     }
 
     function test_onlyPoolManagerCallsUnlockCallback() public {
-        vm.expectRevert(ReflejoHook.NotPoolManager.selector);
+        vm.expectRevert(HikaeHook.NotPoolManager.selector);
         hook.unlockCallback("");
     }
 }
