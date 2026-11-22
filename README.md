@@ -70,6 +70,10 @@ What Hikae adds is `HikaeRetroHook`, which charges the arbitrage that beats the 
 - **Gas.** A swap goes from about 60k to 165k gas. A callback that settles four holds uses about 260k, paid by
   the hook's deposit with the callback proxy. Storing a hash of the hold instead of the full record is the next
   optimization.
+- **Base block time from its number.** The Reactive log record carries the origin block number but no timestamp,
+  so the reactive contract converts it with Base Sepolia's fixed 200 ms schedule (checked over 5,000,000 blocks)
+  and sends the result as a timestamp. Every timer in Hikae runs on timestamps, as the buildathon rules ask: the
+  hold window uses Unichain block time. If Base changes its block time, `setOriginClock` resets the anchor.
 - **Price leader.** The reference pool is assumed to lead the price. In production the reference should be the pool
   where price discovery happens.
 - Not audited.
