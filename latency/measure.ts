@@ -57,6 +57,7 @@ const key = {
   hooks: "0x0000000000000000000000000000000000000000" as Hex,
 };
 const hook = env("HOOK") as Hex;
+const reactive = env("REACTIVE") as Hex;
 const destPoolId = env("DEST_POOL_ID") as Hex;
 const rounds = Number(env("ROUNDS", "10"));
 const amount = BigInt(env("AMOUNT", (50n * 10n ** 18n).toString()));
@@ -82,10 +83,39 @@ type Round = {
   onchainLatencyMs?: number;
   // Milliseconds from seeing the Base receipt to seeing the Unichain event (includes up to POLL_MS of polling).
   clockLatencyMs?: number;
+  // The leg in the middle: the reactive transaction on Lasna, and how long each leg took.
+  lasnaTx?: Hex;
+  lasnaBlock?: string;
+  baseToLasnaMs?: number;
+  lasnaToUnichainS?: number;
   missed?: boolean;
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Reactive Lasna: the reactive contract emits ReferencePushed with the origin tx hash, which links the three legs.
+const lasna = createPublicClient({ transport: http(process.env.LASNA_RPC ?? "https://lasna-rpc.rnk.dev/") });
+const referencePushed = parseAbiItem("event ReferencePushed(int24 tick, uint256 originBlock, uint256 originTxHash)");
+
+/// The reactive transaction on Lasna that relayed `baseTx`, with its block time.
+async function findReactiveTx(reactive: Hex, baseTx: Hex, fromBlock: bigint) {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    try {
+      const head = await lasna.getBlockNumber();
+      const logs = await lasna.getLogs({ address: reactive, event: referencePushed, fromBlock, toBlock: head });
+      const match = logs.find((log) => log.args.originTxHash === BigInt(baseTx));
+      if (match) {
+        const block = await lasna.getBlock({ blockNumber: match.blockNumber });
+        return { hash: match.transactionHash, block: match.blockNumber, timestamp: Number(block.timestamp) };
+      }
+    } catch {
+      // transient RPC error
+    }
+    await sleep(1000);
+  }
+  return undefined;
+}
 
 /// Signs and sends one swap on the reference pool with cast and the keystore account; returns the tx hash.
 function sendSwap(zeroForOne: boolean): Hex {
@@ -151,6 +181,11 @@ async function waitForCallback(baseTx: Hex, fromBlock: bigint) {
   return undefined;
 }
 
+function legStats(values: (number | undefined)[]) {
+  const sorted = values.filter((v): v is number => v !== undefined).sort((a, b) => a - b);
+  return { p50: percentile(sorted, 50), p95: percentile(sorted, 95), max: sorted.at(-1) };
+}
+
 function percentile(sorted: number[], p: number) {
   if (sorted.length === 0) return NaN;
   const index = Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1);
@@ -165,6 +200,7 @@ async function main() {
     // Alternate direction so the price oscillates and every swap moves it past the reactive debounce.
     const zeroForOne = i % 2 === 0;
     const uniStart = await retry(() => uni.getBlockNumber());
+    const lasnaStart = await retry(() => lasna.getBlockNumber());
 
     const baseTx = sendSwap(zeroForOne);
     const receipt = await retry(() => base.waitForTransactionReceipt({ hash: baseTx, pollingInterval: POLL_MS }));
@@ -185,10 +221,17 @@ async function main() {
       const originTimeMs = Number(found.log.args.originTimeMs ?? 0n);
       if (originTimeMs > 0) round.onchainLatencyMs = Number(uniBlock.timestamp) * 1000 - originTimeMs;
       round.clockLatencyMs = found.seenAt - receiptSeenAt;
+      const relayed = await findReactiveTx(reactive, baseTx, lasnaStart);
+      if (relayed) {
+        round.lasnaTx = relayed.hash;
+        round.lasnaBlock = relayed.block.toString();
+        if (originTimeMs > 0) round.baseToLasnaMs = relayed.timestamp * 1000 - originTimeMs;
+        round.lasnaToUnichainS = Number(uniBlock.timestamp) - relayed.timestamp;
+      }
       console.log(
         `#${i + 1} ${zeroForOne ? "0->1" : "1->0"} tick ${round.refTick}: ` +
           `${round.chainLatencyS} s by block time, ${round.onchainLatencyMs ?? "?"} ms on-chain, ` +
-          `${round.clockLatencyMs} ms by clock`,
+          `${round.clockLatencyMs} ms by clock; Lasna ${round.lasnaTx ?? "?"}`,
       );
     }
     results.push(round);
@@ -215,6 +258,8 @@ function save(results: Round[], final: boolean) {
     chainLatencyS: { p50: percentile(chain, 50), p95: percentile(chain, 95), max: chain.at(-1) },
     clockLatencyMs: { p50: percentile(clock, 50), p95: percentile(clock, 95), max: clock.at(-1) },
     onchainLatencyMs: { p50: percentile(onchain, 50), p95: percentile(onchain, 95), max: onchain.at(-1) },
+    baseToLasnaMs: legStats(delivered.map((r) => r.baseToLasnaMs)),
+    lasnaToUnichainS: legStats(delivered.map((r) => r.lasnaToUnichainS)),
   };
   if (final) console.log(JSON.stringify(summary, null, 2));
   writeFileSync(

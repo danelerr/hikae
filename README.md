@@ -17,13 +17,21 @@ Reactive Lasna and Unichain Sepolia, with the transactions linked.
 
 ## Results on testnet
 
-- **Loop latency**, from the Base block to the Unichain block that carries the callback: p50 1.8 s, p95 2.6 s,
-  10 of 10 callbacks delivered ([details](#measured-on-testnet-22-nov-2026)).
-- **Arbitrage ahead of the callback**: the same swap, 1.6 s after the Base move, paid 0.30% on a v1 pool and 0.30%
-  plus 0.42% on the Hikae pool, the 0.42% donated to its LPs after the callback
-  ([case A](#race-demo-case-a-latencyrace-2026-11-22t14-36-52-258zjson)); charged in 4 of 4 earlier rounds too.
-- **A swap before the move** got its whole hold back ([case B](#race-demo-case-b-latencyrace-2026-11-22t14-42-46-415zjson)).
-- 40 Foundry tests, including the timing rule and exact-output holds.
+<!-- testnet:start -->
+- **Loop latency**, Base block to the Unichain block with the callback: p50 1.8 s, p95 2.4 s, 10 of 10 callbacks delivered. One loop: [0xee78907c…](https://sepolia.basescan.org/tx/0xee78907c050cec430deb8178cacbe3ecacdce9dc6bd50bc2e3de787033beb62c) on Base → — on Lasna → [0x17a0df59…](https://sepolia.uniscan.xyz/tx/0x17a0df59df8f3192a40d1701ef33d5138d98a7d413fc06e91f6017fbcb616aa9) on Unichain.
+- **Arbitrage ahead of the callback**: the same swap paid 0.30% on the v1 pool and 0.30% on the Hikae pool, which then sent 0.00419 to its LPs and refunded 0.00578.
+- **A swap before the move** got its whole hold back (0.00997).
+- Every contract and transaction, with explorer links: [TESTNET.md](TESTNET.md).
+<!-- testnet:end -->
+- 42 Foundry tests, including the timing rule, exact-output holds and settlement inside the callback.
+
+## How a judge can check it in two minutes
+
+1. Open [TESTNET.md](TESTNET.md): every contract with its explorer and Sourcify link, ten full loops with the swap on
+   Base, the reactive transaction on Lasna and the callback on Unichain, and both race cases.
+2. In case A, compare the two swaps in the same Unichain block: the v1 pool charged the base fee; the Hikae callback
+   that followed shows the `Settled` event with the amount sent to LPs.
+3. Run `forge test`.
 
 ## Why
 
@@ -43,8 +51,10 @@ loop pays only the base fee. Hikae's first contract, `HikaeHook`, is the same id
 
 What Hikae adds is `HikaeRetroHook`, which charges the arbitrage that beats the callback:
 
-- **Retroactive surcharge.** Every swap leaves 1% of its unspecified amount as ERC-6909 claims for up to 8 s.
-  Settlement, which anyone can trigger, donates the skipped fee to in-range LPs and refunds the rest.
+- **Retroactive surcharge, settled by Reactive.** Every swap leaves 1% of its unspecified amount as ERC-6909
+  claims for up to 8 s. The callback that brings the next reference settles the holds it decided: it donates the
+  skipped fee to in-range LPs and refunds the rest, so nobody has to send a second transaction. Anyone can still
+  settle a hold the callbacks have not reached.
 - **Timing rule.** Only swaps that happened after the Base price moved are charged. The callback carries the exact
   time of the Base block, computed by the reactive contract from its number, since the Reactive log record has no
   timestamp. A swap that came first traded at the right price and gets everything back.
@@ -57,8 +67,9 @@ What Hikae adds is `HikaeRetroHook`, which charges the arbitrage that beats the 
   benign flow could go to other pools. A smaller hold, or holding only after large moves, would soften this.
 - **Who receives the surcharge.** It goes to the LPs in range at settlement, not necessarily those who were in range
   when the arbitrage happened, which leaves room for just-in-time liquidity.
-- **Gas.** A swap goes from about 60k to 165k gas, and each settlement costs about 43k. Storing a hash of the hold
-  instead of the full record is the next optimization; settlement could be triggered by Reactive itself.
+- **Gas.** A swap goes from about 60k to 165k gas. A callback that settles four holds uses about 260k, paid by
+  the hook's deposit with the callback proxy. Storing a hash of the hold instead of the full record is the next
+  optimization.
 - **Price leader.** The reference pool is assumed to lead the price. In production the reference should be the pool
   where price discovery happens.
 - Not audited.
@@ -89,14 +100,15 @@ reference pool ── Swap event ──▶ HikaeReactive ── callback ──�
   contract.
 - `src/HikaeRetroHook.sol`: covers the arbitrage that lands before the callback, which the fee above
   cannot see. It holds back `holdBps` of every swap's unspecified amount (output on exact input, input on exact
-  output) as ERC-6909 claims. Anyone can call `settle(holdId)`: if the first reference after the swap landed within
+  output) as ERC-6909 claims. Each callback settles up to four decided holds, and anyone can call
+  `settle(holdId)` for the rest: if the first reference after the swap landed within
   `window` seconds and the swap traded toward it, the fee the swap skipped is donated to in-range LPs and the rest
   is refunded; otherwise everything is refunded. Refunds go to the account behind routers that implement
   `IMsgSender`, or to the router itself. A swap is charged only if the price had already moved on Base when the
   swap's block started: a swap that came before the move traded at the right price and gets everything back. The
   callback carries the time of the Base block, computed by the reactive contract from its number (Base Sepolia
   makes a block every 200 ms on a fixed schedule; the log record has the block number but no timestamp). Measured in Foundry: a swap goes from ~60k to ~165k gas, and a settlement
-  costs ~43k. Storing a hash of the hold instead of the full record is the next optimization.
+  costs ~43k.
 
 ## Run the tests
 
@@ -123,7 +135,7 @@ It requests lREACT from the [Reactive faucet](https://dev.reactive.network/react
 balance on Lasna is below 2.5, runs the four deploy steps, saves every address in `deployments/testnet.env` (a second
 run resumes from there; `-Fresh` starts over) and ends with the latency run below. `-Retro` then adds a second
 reactive contract, the retro hook with its pool and a demo router, and runs `latency/race.ts` (cases A and B; `CASE=B`
-runs one).
+runs one). At the end it writes [TESTNET.md](TESTNET.md) with every contract and transaction.
 
 Funds needed (from dry runs on 21 Nov 2026):
 
@@ -184,70 +196,13 @@ Swaps are signed by `cast send` with the keystore account in `ETH_KEYSTORE_ACCOU
 `ETH_PASSWORD` (`deploy.ps1` sets both). Each run saves `latency/results-<time>.json` with p50, p95, max and every
 transaction hash. It needs Node 23.6 or later, which runs TypeScript directly.
 
-### Measured on testnet (22 Nov 2026)
-
-10 rounds, 10 callbacks delivered. From the Base Sepolia block (time computed on-chain from its number) to the start
-of the Unichain Sepolia block that carried the callback: **p50 1.8 s, p95 2.6 s, max 2.6 s**. By block timestamps
-alone (1 s resolution): p50 2 s, p95 3 s. Raw data: `latency/results-2026-11-22T14-04-23-907Z.json`.
-
-| Round | Swap on Base | Callback on Unichain | Latency |
-|---|---|---|---|
-| 1 | [0xde9099de…](https://sepolia.basescan.org/tx/0xde9099de79be244e83b79415219bf12a47c0dc4c32cf0e86263f4712e1c52a94) | [0x9bd649b3…](https://sepolia.uniscan.xyz/tx/0x9bd649b3609a6ee7b20ae93161cc7bfd567447f126a7682765aa40164224f482) | 2.6 s |
-| 2 | [0x0afc0c17…](https://sepolia.basescan.org/tx/0x0afc0c173fb81b143376210ccc77019a34ad40af2cde822a12dd3a7542d0a253) | [0x18007ddd…](https://sepolia.uniscan.xyz/tx/0x18007ddd8a6db141ccccad192a2e5fd46f098787112d1fe889d616cd9142654f) | 1.8 s |
-| 3 | [0xc7fb8750…](https://sepolia.basescan.org/tx/0xc7fb87501b9716f642a92bd6ad718846a58ddec6079863e8c81c60807168b1a0) | [0xd977cd87…](https://sepolia.uniscan.xyz/tx/0xd977cd87ea53ab656f18b5d846ff8f9f59c905aa4d2028f84457ff5772518cd4) | 1.6 s |
-| 4 | [0x3db7b792…](https://sepolia.basescan.org/tx/0x3db7b792c7c507fac42b425ab81f97c936fbfc9bced85d2402f01a1894133512) | [0x6523d680…](https://sepolia.uniscan.xyz/tx/0x6523d680530c7e09a2aa808f0a05809d49cdf9a183272282d4d5e3ce8fb7abcb) | 2.4 s |
-| 5 | [0xadbfd053…](https://sepolia.basescan.org/tx/0xadbfd053639c1846dbabbee390c2fe5cb88748b9c10fd2e3ba69c473314b9840) | [0x022cd928…](https://sepolia.uniscan.xyz/tx/0x022cd92825b58ad4ad139994575724315e140659630c1c4f758b6f9dd940bdc4) | 1.6 s |
-| 6 | [0xf7d96d04…](https://sepolia.basescan.org/tx/0xf7d96d04aabc3e0cb4ad359201ead19dd8f9fbc8a84b87ccdd0e97729879115d) | [0x426eac79…](https://sepolia.uniscan.xyz/tx/0x426eac79e07e832993e6feb9ba0eb4e1d865e46be869e2336042bd32bfc0a622) | 2.2 s |
-| 7 | [0xcbc4574a…](https://sepolia.basescan.org/tx/0xcbc4574a39bb66f35ac2825e75b59503a6acef4bb992d952343c21b4db89e991) | [0x2e50e505…](https://sepolia.uniscan.xyz/tx/0x2e50e505041f88ef77962c08d0e43be2e065bee489dca0435e171582ab2e820a) | 1.8 s |
-| 8 | [0x0924dc9d…](https://sepolia.basescan.org/tx/0x0924dc9d5571b04b697101074b51accec82a0b66229c1990f973c2ddffa991b0) | [0xdbb47d6e…](https://sepolia.uniscan.xyz/tx/0xdbb47d6e3853c71fc83afe1b717e97923ec6edfefd506f0b146811ebd1486b63) | 2.6 s |
-| 9 | [0x37a77237…](https://sepolia.basescan.org/tx/0x37a772372fe4b1bb1df1ce45f0b1f43620b622176e475fedcccca7877aea44e9) | [0xc5ea3fb1…](https://sepolia.uniscan.xyz/tx/0xc5ea3fb1c501c3b57911e77a3d130eb89ad83593c57e341ebfc41395c800be48) | 1.8 s |
-| 10 | [0xa39287a2…](https://sepolia.basescan.org/tx/0xa39287a23e7108ac83849e618e00df83a51f3cef9815cd71474c72b267742983) | [0xcd5ddd72…](https://sepolia.uniscan.xyz/tx/0xcd5ddd72dee27dc3949c2059b901a12e0e97f34f12414b4060922058313a139d) | 2.4 s |
-
-Contracts: reactive `0x900Cd8B955d88fD7b805eDcA939f0BFB069946bd` (Lasna), hook
-`0x5C7C47e0eA8c509cABF647D13B831b2554c0A080` (Unichain Sepolia). All addresses in `deployments/testnet.env`.
-
-### Retroactive surcharge on testnet (22 Nov 2026)
-
-Retro hook `0xF2B55986DbAbFDEfe9a453379c242A58F88C60c4` (Unichain Sepolia), fed by a second reactive contract
-`0xae77c3F3db27F688431372B41CFcdDd4916386f0` (Lasna) that watches the same Base pool. Each round moves the Base price
-about 100 ticks, then swaps 1 token on Unichain before the callback lands. In all four rounds the swap ran earlier in
-the same Unichain block than the reference, so it paid only the 0.30% base fee. With the reference in place the
-dynamic fee for a ~100 tick gap is 0.72%, so settlement charged the 0.42% the swap skipped out of its 1% hold,
-donated it to in-range LPs and refunded the rest. Amounts in tokens:
-
-| Round | Swap and hold | Reference | Tick | Settlement | To LPs | Refunded |
-|---|---|---|---|---|---|---|
-| 1 | [0xd9f20ca8…](https://sepolia.uniscan.xyz/tx/0xd9f20ca8a403c17a03f3152a9ef5c915cf5bb595a4c968f61ccb075cd6a16d8a) | [0x17ad6a0e…](https://sepolia.uniscan.xyz/tx/0x17ad6a0eb3acd7aa77ee92b7b818ad4a449025df3057979349e2c441dbabd3ca) | -100 | [0xcc0423c3…](https://sepolia.uniscan.xyz/tx/0xcc0423c34b4e400302fdc668b3a518c1121758c0759669a414ba64a1f21e91ed) | 0.00419 | 0.00578 |
-| 2 | [0x4d1c50fc…](https://sepolia.uniscan.xyz/tx/0x4d1c50fcca2fd49cf77d91641bfb3741f88686f822ffdeffbdca2b26391495a9) | [0x646fe6d0…](https://sepolia.uniscan.xyz/tx/0x646fe6d07e6e0ed2896a36a897731b22b2df655c2bb1ccb549754757ca1dfda5) | -99 | [0xe3311b77…](https://sepolia.uniscan.xyz/tx/0xe3311b777f54e95bdaa28a0a2e50ffae0d7d460e9124bc671b7433f10e72e307) | 0.00407 | 0.00590 |
-| 3 | [0x5d88c0f9…](https://sepolia.uniscan.xyz/tx/0x5d88c0f9d4e2343a63d1b0a90348949624bd54f279138a894a2ca499229d9d9a) | [0x0501cd06…](https://sepolia.uniscan.xyz/tx/0x0501cd060d5730d6cc81b3ce918ca47eb5450d2298f3535de5fb745a8fe1c170) | -99 | [0xc0c451f6…](https://sepolia.uniscan.xyz/tx/0xc0c451f6e3113cadbe36e9f3fed5b64515fd5774104c64b04c39cdff762941e5) | 0.00407 | 0.00590 |
-| 4 | [0xb1b2e39a…](https://sepolia.uniscan.xyz/tx/0xb1b2e39a501a0ffa7e43908652869cdc5cb9d809fe188358d67851ef8d962575) | [0xb2b5ce63…](https://sepolia.uniscan.xyz/tx/0xb2b5ce636cf730ccf72b20faa811867dac2bfa7d4db87ff80ecd319a29c3a0aa) | -98 | [0x42f0d006…](https://sepolia.uniscan.xyz/tx/0x42f0d0065809d64d009935841b725b4cc5cecc535981244a77f130c6ad118971) | 0.00401 | 0.00596 |
-
-#### Race demo, case A (`latency/race-2026-11-22T14-36-52-258Z.json`)
-
-Base moved ([swap](https://sepolia.basescan.org/tx/0x638bc98c6db27cd158b728d49beba64e54156ae789f64a344290c620ffec71d1)); 1.6 s later the same 1-token swap hit both Unichain pools, before either
-callback landed:
-
-- **v1 pool:** [swap](https://sepolia.uniscan.xyz/tx/0x9f09aa6de0a6b4677a159a2363d7d2f9caebc37d86aafafd309cdfd2404e84dd) paid 3000 pips, the base fee. Nothing else happens: the arbitrage beat the reference.
-- **Retro pool:** [swap](https://sepolia.uniscan.xyz/tx/0x7544bb96ea18532e286c174d99de0101fdcecbd8d19aa5067a98eba0a2e247aa) paid 3000 pips and held 0.009969105452348999. The [reference](https://sepolia.uniscan.xyz/tx/0x98fce5249f0f49992847c239a0824c9c3e082bdedcb809493772e0b2848035fc) (-98) landed one block later; [settlement](https://sepolia.uniscan.xyz/tx/0x918b3d388e65fca1768c36ccd7380c04e7d1f0aa4cfd89991c32350c82382bab) sent **0.004007** to LPs and refunded 0.005961.
-
-#### Race demo, case B (`latency/race-2026-11-22T14-42-46-415Z.json`)
-
-A 1-token [swap](https://sepolia.uniscan.xyz/tx/0x03e4ca925602b80f467de906a1aad25734faf2e19a06409d0176d0b131e6adb8) ran on the retro pool in block time 1795358553; Base [moved](https://sepolia.basescan.org/tx/0xe314c104b52f9f6a78298ea4feab4d4aadb86ffef68c2b156be5b06039473dfe)
-at 1795358558.6, after the swap. The [reference](https://sepolia.uniscan.xyz/tx/0xd22ece77f3dd79bba0377f5fe55b76b701ae86f92a8fda1d99026209122f394c) (-97) landed at
-1795358561, inside the 8 s window, so only the timing rule decided: [settlement](https://sepolia.uniscan.xyz/tx/0xf6412a7dc50ab314f723fa7836b26458611bfb214860ee8afbf35880e01f6e48) sent
-**0** to LPs and refunded the whole hold (0.009968). The swap traded at the right price when it happened.
-
-`latency/race.ts` reproduces this and also runs the opposite case: a swap made before the Base move, which gets its
-whole hold back.
+Results from the latest run are written to [TESTNET.md](TESTNET.md) by `latency/report.ts`.
 
 ## Status
 
-- [x] Hook and reactive contract, 25 tests passing
-- [x] Retroactive surcharge spike in Foundry, charging only swaps after the origin move (40 tests in total)
-- [x] Testnet deploy scripts (dry runs pass on Base Sepolia, Unichain Sepolia and Lasna)
-- [x] Event → callback loop verified on testnet (22 Nov 2026)
-- [x] Latency script (`latency/measure.ts`)
-- [x] Latency numbers from testnet: p50 1.8 s, p95 2.6 s over 10 rounds
-- [x] Retroactive surcharge charged on testnet, 4 of 4 rounds (22 Nov 2026)
-- [x] Race demo on testnet: case A (v1 vs retro) and case B (swap before the move, full refund)
+- [x] Hook, retro hook and reactive contract, 42 Foundry tests
+- [x] Deployed on Base Sepolia, Reactive Lasna and Unichain Sepolia with `deploy.ps1`
+- [x] Full loop verified on testnet with latency per leg ([TESTNET.md](TESTNET.md))
+- [x] Race demo on testnet: arbitrage ahead of the callback (v1 vs Hikae) and a swap before the move
+- [x] Holds settled inside the Reactive callback
 - [ ] Demo video (under 3 minutes)

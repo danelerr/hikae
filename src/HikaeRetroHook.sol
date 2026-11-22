@@ -22,8 +22,9 @@ import {HikaeHook} from "./HikaeHook.sol";
 /// exact-output swaps) for a short window. If the next reference lands inside the window, a swap that traded
 /// toward it pays, out of what was held, the surcharge it skipped: that part is donated to in-range LPs and the
 /// rest is refunded. With no reference in the window, or a swap in the other direction, all of it is refunded.
-/// @dev Spike for the Reactive Omni buildathon, not audited. Holds are kept as ERC-6909 claims on the
-/// PoolManager and settled one by one through `settle`, so no callback ever loops over holds.
+/// @dev Built for the Reactive Omni buildathon, not audited. Holds are kept as ERC-6909 claims on the PoolManager.
+/// Each Reactive callback settles up to MAX_AUTO_SETTLE holds whose outcome it decided, so nobody has to send a
+/// second transaction; anyone can still call `settle` for a hold the callbacks have not reached.
 contract HikaeRetroHook is HikaeHook, IUnlockCallback {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
@@ -53,6 +54,8 @@ contract HikaeRetroHook is HikaeHook, IUnlockCallback {
     /// @dev References kept per pool. A hold whose first reference was overwritten is refunded in full.
     uint256 internal constant RING_SIZE = 64;
     uint256 internal constant MAX_HOLD_BPS = 1000;
+    /// @notice Holds settled per callback at most, to keep the callback within its gas limit.
+    uint256 public constant MAX_AUTO_SETTLE = 4;
 
     // Transient slots that carry beforeSwap context into afterSwap.
     bytes32 internal constant PRE_TICK_SLOT = keccak256("hikae.retro.preTick");
@@ -71,6 +74,8 @@ contract HikaeRetroHook is HikaeHook, IUnlockCallback {
     mapping(PoolId => uint64) public refCount;
     mapping(PoolId => RefPoint[RING_SIZE]) internal refRing;
     Hold[] internal holds;
+    /// @notice First hold the callbacks have not settled or skipped yet. Holds are queued in creation order.
+    uint256 public nextToSettle;
 
     event Held(uint256 indexed holdId, PoolId indexed poolId, address indexed owner, bool currencyIs0, uint256 amount);
     event Settled(uint256 indexed holdId, uint256 toLPs, uint256 refund);
@@ -127,6 +132,32 @@ contract HikaeRetroHook is HikaeHook, IUnlockCallback {
         refRing[poolId][seq % RING_SIZE] =
             RefPoint({tick: refTick, time: uint40(block.timestamp), originTimeMs: uint64(originTimeMs)});
         refCount[poolId] = seq + 1;
+        _autoSettle();
+    }
+
+    /// @dev The reference that just landed decides the holds made before it. Settle them in creation order and stop
+    /// at the first one that is still open (no reference yet, window not over). A settlement that fails, for example
+    /// because a token blocks the recipient, must not revert the callback: that hold stays open for a manual
+    /// `settle` and the queue moves on.
+    function _autoSettle() internal {
+        uint256 id = nextToSettle;
+        uint256 end = holds.length;
+        uint256 done;
+        while (id < end && done < MAX_AUTO_SETTLE) {
+            Hold storage h = holds[id];
+            if (!h.settled) {
+                (bool ready,) = _assess(h);
+                if (!ready) break;
+                try this.settle(id) {} catch {}
+                unchecked {
+                    ++done;
+                }
+            }
+            unchecked {
+                ++id;
+            }
+        }
+        nextToSettle = id;
     }
 
     function _onBeforeSwap(PoolKey calldata key, SwapParams calldata, uint24 fee) internal override {

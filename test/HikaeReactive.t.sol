@@ -18,7 +18,7 @@ contract HikaeReactiveTest is Test {
     bytes32 constant DESTINATION_POOL_ID = keccak256("protected pool");
     uint24 constant MIN_TICK_MOVE = 10;
     uint256 constant SWAP_TOPIC_0 = uint256(keccak256("Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)"));
-    uint64 constant CALLBACK_GAS_LIMIT = 250_000;
+    uint64 constant CALLBACK_GAS_LIMIT = 600_000;
 
     address hook = makeAddr("hook");
     HikaeReactive reactive;

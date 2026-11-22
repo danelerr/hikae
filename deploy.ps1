@@ -87,7 +87,7 @@ function Get-LasnaBalance {
 }
 
 $secure = Read-Host "Password for keystore '$Account'" -AsSecureString
-$passwordFile = Join-Path $env:TEMP ("hikae-" + [guid]::NewGuid().ToString() + ".tmp")
+$passwordFile = Join-Path ([IO.Path]::GetTempPath()) ("hikae-" + [guid]::NewGuid().ToString() + ".tmp")
 try {
     $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
     try {
@@ -162,6 +162,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Latency run failed, see the output above." }
         Write-Host "`nDone. Addresses in $StateFile, latency results in latency\results-*.json" -ForegroundColor Green
     }
+    & node latency/report.ts
 } finally {
     if (Test-Path $passwordFile) { Remove-Item $passwordFile -Force }
     Remove-Item Env:ETH_PASSWORD -ErrorAction SilentlyContinue

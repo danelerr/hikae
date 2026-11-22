@@ -64,6 +64,7 @@ const destToken1 = env("DEST_TOKEN1");
 const v1Hook = env("HOOK") as Hex;
 const v1PoolId = env("DEST_POOL_ID") as Hex;
 const retroHook = env("RETRO_HOOK") as Hex;
+const retroReactive = env("RETRO_REACTIVE") as Hex;
 const retroPoolId = env("RETRO_POOL_ID") as Hex;
 const demoRouter = env("DEMO_ROUTER");
 const raceAmount = BigInt(env("RACE_AMOUNT", (500n * 10n ** 18n).toString()));
@@ -92,6 +93,30 @@ const swapEvent = parseAbiItem(
 );
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Reactive Lasna: the reactive contract emits ReferencePushed with the origin tx hash, which links the three legs.
+const lasna = createPublicClient({ transport: http(process.env.LASNA_RPC ?? "https://lasna-rpc.rnk.dev/") });
+const referencePushed = parseAbiItem("event ReferencePushed(int24 tick, uint256 originBlock, uint256 originTxHash)");
+
+/// The reactive transaction on Lasna that relayed `baseTx`, with its block time.
+async function findReactiveTx(reactive: Hex, baseTx: Hex, fromBlock: bigint) {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    try {
+      const head = await lasna.getBlockNumber();
+      const logs = await lasna.getLogs({ address: reactive, event: referencePushed, fromBlock, toBlock: head });
+      const match = logs.find((log) => log.args.originTxHash === BigInt(baseTx));
+      if (match) {
+        const block = await lasna.getBlock({ blockNumber: match.blockNumber });
+        return { hash: match.transactionHash, block: match.blockNumber, timestamp: Number(block.timestamp) };
+      }
+    } catch {
+      // transient RPC error
+    }
+    await sleep(1000);
+  }
+  return undefined;
+}
 const fmt = (amount: bigint) => formatUnits(amount, 18);
 
 async function retry<T>(read: () => Promise<T>, tries = 8): Promise<T> {
@@ -182,7 +207,16 @@ async function waitForReference(hook: Hex, poolId: Hex, baseTx: Hex, fromBlock: 
 const read = <T>(functionName: string, args: unknown[] = []) =>
   retry(() => uni.readContract({ address: retroHook, abi: retroAbi, functionName: functionName as never, args: args as never }) as Promise<T>);
 
-type Hold = { owner: Hex; time: number; feePaid: number; refSeq: bigint; swapAmount: bigint; amount: bigint; preTick: number };
+type Hold = {
+  owner: Hex;
+  time: number;
+  feePaid: number;
+  refSeq: bigint;
+  swapAmount: bigint;
+  amount: bigint;
+  preTick: number;
+  settled: boolean;
+};
 
 const refKey = `(${refToken0},${refToken1},3000,60,${ZERO})`;
 const swapParams = (zeroForOne: boolean, amount: bigint) => `(${zeroForOne},-${amount},${zeroForOne ? MIN_SQRT : MAX_SQRT})`;
@@ -204,10 +238,17 @@ async function baseMoveAndSettleIn(zeroForOne: boolean) {
 }
 
 async function settle(holdId: bigint) {
-  const [ready, toLPs] = await read<[boolean, bigint]>("previewSettle", [holdId]);
   const tx = send(UNI_RPC, retroHook, "settle(uint256)", [String(holdId)]);
   const settled = settledEvent(await receipt(uni, tx));
-  return { tx, ready, previewToLPs: toLPs, toLPs: settled.toLPs, refund: settled.refund };
+  return { tx, auto: false, toLPs: settled.toLPs, refund: settled.refund };
+}
+
+/// The callback that brings the reference settles the hold itself; fall back to a manual settle otherwise.
+async function outcome(holdId: bigint, callbackTx: Hex) {
+  const hold = await read<Hold>("getHold", [holdId]);
+  if (!hold.settled) return settle(holdId);
+  const settled = settledEvent(await receipt(uni, callbackTx));
+  return { tx: callbackTx, auto: true, toLPs: settled.toLPs, refund: settled.refund };
 }
 
 async function caseA() {
@@ -224,6 +265,7 @@ async function caseA() {
     const rawV1 = presign(UNI_RPC, UNI_SWAP_ROUTER, BASE_SWAP_SIG, [v1Key, swapParams(true, uniAmount), "(false,false)", "0x"], uniNonce + 1, 400_000);
     const rawBase = presign(BASE_RPC, BASE_SWAP_ROUTER, BASE_SWAP_SIG, baseSwapArgs(true), baseNonce, 400_000);
     const uniFrom = await retry(() => uni.getBlockNumber());
+    const lasnaFrom = await retry(() => lasna.getBlockNumber());
 
     const sentAt = Date.now();
     const baseTx = await base.sendRawTransaction({ serializedTransaction: rawBase });
@@ -260,9 +302,11 @@ async function caseA() {
       await settle(holdId).catch(() => undefined);
       continue;
     }
-    const result = await settle(holdId);
+    const result = await outcome(holdId, ref.transactionHash);
+    const relayed = await findReactiveTx(retroReactive, baseTx, lasnaFrom);
     console.log(
-      `  Reference ${ref.args.tick} landed in block ${callbackBlock} after the swap (block ${retroRcpt.blockNumber}, index ${retroRcpt.transactionIndex}).\n` +
+      `  Reactive tx on Lasna ${relayed?.hash ?? "?"}; settled ${result.auto ? "by the callback itself" : "manually"}.\n` +
+        `  Reference ${ref.args.tick} landed in block ${callbackBlock} after the swap (block ${retroRcpt.blockNumber}, index ${retroRcpt.transactionIndex}).\n` +
         `  Held ${fmt(hold.amount)} of ${fmt(hold.swapAmount)}; to LPs ${fmt(result.toLPs)}, refunded ${fmt(result.refund)}.`,
     );
     return {
@@ -273,8 +317,10 @@ async function caseA() {
         tx: retroTx,
         feePaidPips: Number(hold.feePaid),
         swapBlock: retroRcpt.blockNumber.toString(),
+        reactiveTx: relayed?.hash,
         callbackTx: ref.transactionHash,
         callbackBlock: callbackBlock.toString(),
+        settledByCallback: result.auto,
         refTick: Number(ref.args.tick),
         held: fmt(hold.amount),
         swapAmount: fmt(hold.swapAmount),
@@ -296,6 +342,7 @@ async function caseB() {
   const baseNonce = await retry(() => base.getTransactionCount({ address: wallet, blockTag: "pending" }));
   const rawBase = presign(BASE_RPC, BASE_SWAP_ROUTER, BASE_SWAP_SIG, baseSwapArgs(true), baseNonce, 400_000);
   const uniFrom = await retry(() => uni.getBlockNumber());
+  const lasnaFrom = await retry(() => lasna.getBlockNumber());
   const swapTx = send(UNI_RPC, demoRouter, "swap((address,address,uint24,int24,address),(bool,int256,uint160))", [retroKey, swapParams(true, uniAmount)]);
   await receipt(uni, swapTx);
   const hold = await read<Hold>("getHold", [holdId]);
@@ -308,7 +355,8 @@ async function caseB() {
   const window = 8;
   const insideWindow = landedAt <= Number(hold.time) + window;
   const moveAfterSwap = movedAt > Number(hold.time) * 1000;
-  const result = await settle(holdId);
+  const result = await outcome(holdId, ref.transactionHash);
+  const relayed = await findReactiveTx(retroReactive, baseTx, lasnaFrom);
   const reason = !insideWindow
     ? "the reference landed after the hold window"
     : moveAfterSwap
@@ -324,8 +372,10 @@ async function caseB() {
     swapBlockTime: Number(hold.time),
     baseTx,
     movedAtMs: movedAt,
+    reactiveTx: relayed?.hash,
     callbackTx: ref.transactionHash,
     callbackLandedAt: landedAt,
+    settledByCallback: result.auto,
     insideWindow,
     moveAfterSwap,
     refTick: Number(ref.args.tick),

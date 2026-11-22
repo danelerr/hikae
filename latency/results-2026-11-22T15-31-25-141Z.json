@@ -1,0 +1,147 @@
+{
+  "summary": {
+    "rounds": 10,
+    "delivered": 10,
+    "chainLatencyS": {
+      "p50": 2,
+      "p95": 3,
+      "max": 3
+    },
+    "clockLatencyMs": {
+      "p50": 5080,
+      "p95": 6565,
+      "max": 6565
+    },
+    "onchainLatencyMs": {
+      "p50": 1800,
+      "p95": 2400,
+      "max": 2400
+    }
+  },
+  "explorers": {
+    "base": "https://sepolia.basescan.org/tx/",
+    "unichain": "https://sepolia.uniscan.xyz/tx/"
+  },
+  "results": [
+    {
+      "round": 1,
+      "zeroForOne": true,
+      "baseTx": "0xee78907c050cec430deb8178cacbe3ecacdce9dc6bd50bc2e3de787033beb62c",
+      "baseBlock": "62198095",
+      "uniTx": "0x17a0df59df8f3192a40d1701ef33d5138d98a7d413fc06e91f6017fbcb616aa9",
+      "uniBlock": "68509061",
+      "refTick": -10,
+      "chainLatencyS": 2,
+      "onchainLatencyMs": 1200,
+      "clockLatencyMs": 5130
+    },
+    {
+      "round": 2,
+      "zeroForOne": false,
+      "baseTx": "0xb01157cc86131efec68d7cbe2c0cd9f1ae8452d2169c06b51af11dcf1582527d",
+      "baseBlock": "62198207",
+      "uniTx": "0x328d1ed2252c6f3a5d208d30f1f38b0e019b885993a22c9e6b671676c2399ac4",
+      "uniBlock": "68509084",
+      "refTick": 0,
+      "chainLatencyS": 2,
+      "onchainLatencyMs": 1800,
+      "clockLatencyMs": 4949
+    },
+    {
+      "round": 3,
+      "zeroForOne": true,
+      "baseTx": "0x56b4414dcc2882a8a5f3fed0f0406991f6f61f4f9bd4cbc8b4c565fab29843f5",
+      "baseBlock": "62198317",
+      "uniTx": "0x51f83d79f5649ee3b8df3ea3d42882f4ec6848685507ed0aa4e874cb0c2e9956",
+      "uniBlock": "68509106",
+      "refTick": -10,
+      "chainLatencyS": 2,
+      "onchainLatencyMs": 1800,
+      "clockLatencyMs": 5073
+    },
+    {
+      "round": 4,
+      "zeroForOne": false,
+      "baseTx": "0x4afa8ff3ba8e0978b41e43677c9cbd95e96c8df6c969bbdd700bae0ecc6569ee",
+      "baseBlock": "62198429",
+      "uniTx": "0x296793eee9fe74c6ab3c7755179e75038701cc1d3e40925a13997240d79dabe9",
+      "uniBlock": "68509128",
+      "refTick": 0,
+      "chainLatencyS": 2,
+      "onchainLatencyMs": 1400,
+      "clockLatencyMs": 5147
+    },
+    {
+      "round": 5,
+      "zeroForOne": true,
+      "baseTx": "0xf66ab92720905faf47bc38933c61ab33a07abd384363648c80a76a3a0a266b73",
+      "baseBlock": "62198540",
+      "uniTx": "0x406208614f86138e7e2aa38075f6fb0cd9dc23e88b5825f2c656cba3baa8a882",
+      "uniBlock": "68509150",
+      "refTick": -10,
+      "chainLatencyS": 2,
+      "onchainLatencyMs": 1200,
+      "clockLatencyMs": 3684
+    },
+    {
+      "round": 6,
+      "zeroForOne": false,
+      "baseTx": "0xbafc6399daaff34ab7a630de8fcce0cb011c93402f98a54bbfd53e75e01151cb",
+      "baseBlock": "62198645",
+      "uniTx": "0x987621bd1a5940d37ddd892882e6e103223aefe3d31768a36cdceb717a982e40",
+      "uniBlock": "68509172",
+      "refTick": 0,
+      "chainLatencyS": 3,
+      "onchainLatencyMs": 2200,
+      "clockLatencyMs": 5100
+    },
+    {
+      "round": 7,
+      "zeroForOne": true,
+      "baseTx": "0xf468e1c1298f4941fb531165b4cfca986edbc5c7c6c33b3be877b6cbdf3e4355",
+      "baseBlock": "62198756",
+      "uniTx": "0x83a300356891880deb5a041f45c99202ab12c7a3b3709735b4601dc5bce40818",
+      "uniBlock": "68509194",
+      "refTick": -10,
+      "chainLatencyS": 2,
+      "onchainLatencyMs": 2000,
+      "clockLatencyMs": 5137
+    },
+    {
+      "round": 8,
+      "zeroForOne": false,
+      "baseTx": "0x2887296cb23e17ce65adbce9eb0e7600b3e46548f088f04365bf140ce44a698f",
+      "baseBlock": "62198867",
+      "uniTx": "0x5335fb1be0f1cdcdde159469f2b66082ac75b2c50b5a3404a52d7869dab8ddae",
+      "uniBlock": "68509216",
+      "refTick": 0,
+      "chainLatencyS": 2,
+      "onchainLatencyMs": 1800,
+      "clockLatencyMs": 5080
+    },
+    {
+      "round": 9,
+      "zeroForOne": true,
+      "baseTx": "0xe67e446e26a3575e11aa4a334979f50f940fcb9433f5a4378137bcb3dab465f2",
+      "baseBlock": "62198979",
+      "uniTx": "0x618e9231e7d1bdea42df0076c60beea6e135853fa94b4d3081e1c84b8a7adb03",
+      "uniBlock": "68509239",
+      "refTick": -10,
+      "chainLatencyS": 3,
+      "onchainLatencyMs": 2400,
+      "clockLatencyMs": 6565
+    },
+    {
+      "round": 10,
+      "zeroForOne": false,
+      "baseTx": "0x42fadf7e3ae46cfc791181ef3776eca27200833f30236b6057b6b7d92c09f7e0",
+      "baseBlock": "62199098",
+      "uniTx": "0x73266604351ac21f5de1ca8c3558e3dcfe07efa795141890570a6e49f48792f0",
+      "uniBlock": "68509262",
+      "refTick": 0,
+      "chainLatencyS": 2,
+      "onchainLatencyMs": 1600,
+      "clockLatencyMs": 5064
+    }
+  ]
+}

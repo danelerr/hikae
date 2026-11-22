@@ -107,7 +107,7 @@ contract HikaeRetroHookTest is Test, Deployers {
     }
 
     /// @dev The case HikaeHook (and similar oracle-fee hooks) cannot catch: the arbitrage swap lands before
-    /// the reference does, so it pays only the base fee. The next reference charges it after the fact.
+    /// the reference does, so it pays only the base fee. The callback that brings the reference charges it.
     function test_arbitrageAheadOfCallbackPaysRetroactively() public {
         _swap(true, -AMOUNT);
         HikaeRetroHook.Hold memory h = hook.getHold(0);
@@ -115,19 +115,14 @@ contract HikaeRetroHookTest is Test, Deployers {
 
         uint256 movedAt = uint256(h.time) * 1000 - 500; // Base moved 0.5 s before the swap
         vm.warp(block.timestamp + 3); // typical Reactive loop latency
+        (, uint256 growthBefore) = manager.getFeeGrowthGlobals(key.toId());
+        uint256 before1 = currency1.balanceOf(alice);
         _pushReference(-100, movedAt);
 
         // gap 100 ticks -> fee 7_200 pips; already paid 3_000
         uint256 expected = uint256(h.swapAmount) * (7200 - BASE_FEE) / 1_000_000;
-        (bool ready, uint256 toLPs) = hook.previewSettle(0);
-        assertTrue(ready);
-        assertEq(toLPs, expected);
-
-        (, uint256 growthBefore) = manager.getFeeGrowthGlobals(key.toId());
-        uint256 before1 = currency1.balanceOf(alice);
-        hook.settle(0);
         (, uint256 growthAfter) = manager.getFeeGrowthGlobals(key.toId());
-
+        assertTrue(hook.getHold(0).settled, "settled by the callback itself");
         assertEq(currency1.balanceOf(alice) - before1, h.amount - expected, "rest of the hold refunded");
         assertGt(growthAfter, growthBefore, "surcharge donated to LPs");
         assertEq(_claims(currency1), 0);
@@ -139,10 +134,8 @@ contract HikaeRetroHookTest is Test, Deployers {
         assertTrue(h.currencyIs0);
 
         vm.warp(block.timestamp + 3);
-        _pushReference(-100, uint256(h.time) * 1000 - 500);
-
         uint256 before0 = currency0.balanceOf(alice);
-        hook.settle(0);
+        _pushReference(-100, uint256(h.time) * 1000 - 500);
         assertEq(currency0.balanceOf(alice) - before0, h.amount);
         assertEq(_claims(currency0), 0);
     }
@@ -165,10 +158,8 @@ contract HikaeRetroHookTest is Test, Deployers {
         HikaeRetroHook.Hold memory h = hook.getHold(0);
 
         vm.warp(block.timestamp + WINDOW + 1);
-        _pushReference(-100, uint256(h.time) * 1000 - 500);
-
         uint256 before1 = currency1.balanceOf(alice);
-        hook.settle(0);
+        _pushReference(-100, uint256(h.time) * 1000 - 500);
         assertEq(currency1.balanceOf(alice) - before1, h.amount);
     }
 
@@ -189,12 +180,13 @@ contract HikaeRetroHookTest is Test, Deployers {
         _swap(true, -AMOUNT);
         HikaeRetroHook.Hold memory h = hook.getHold(0);
         assertEq(h.feePaid, 7200, "fresh reference: dynamic fee charged up front");
+        assertFalse(h.settled, "the earlier reference cannot decide a later swap");
 
         vm.warp(block.timestamp + 2);
+        uint256 before1 = currency1.balanceOf(alice);
         _pushReference(-100, uint256(h.time) * 1000);
-        (bool ready, uint256 toLPs) = hook.previewSettle(0);
-        assertTrue(ready);
-        assertEq(toLPs, 0);
+        assertTrue(hook.getHold(0).settled);
+        assertEq(currency1.balanceOf(alice) - before1, h.amount, "nothing more to pay");
     }
 
     /// @dev The case that decides whether the idea is fair: a swap that happened before the price moved on Base
@@ -205,13 +197,10 @@ contract HikaeRetroHookTest is Test, Deployers {
 
         uint256 movedAt = uint256(h.time) * 1000 + 400; // Base moved 0.4 s after the swap's block started
         vm.warp(block.timestamp + 3);
+        uint256 before1 = currency1.balanceOf(alice);
         _pushReference(-100, movedAt);
 
-        (bool ready, uint256 toLPs) = hook.previewSettle(0);
-        assertTrue(ready);
-        assertEq(toLPs, 0, "not charged");
-        uint256 before1 = currency1.balanceOf(alice);
-        hook.settle(0);
+        assertTrue(hook.getHold(0).settled);
         assertEq(currency1.balanceOf(alice) - before1, h.amount, "full refund");
     }
 
@@ -219,13 +208,8 @@ contract HikaeRetroHookTest is Test, Deployers {
         _swap(true, -AMOUNT);
         HikaeRetroHook.Hold memory h = hook.getHold(0);
         vm.warp(block.timestamp + 3);
-        _pushReference(-100, 0);
-
-        (bool ready, uint256 toLPs) = hook.previewSettle(0);
-        assertTrue(ready);
-        assertEq(toLPs, 0);
         uint256 before1 = currency1.balanceOf(alice);
-        hook.settle(0);
+        _pushReference(-100, 0);
         assertEq(currency1.balanceOf(alice) - before1, h.amount);
     }
 
@@ -233,6 +217,36 @@ contract HikaeRetroHookTest is Test, Deployers {
         _swap(true, -AMOUNT);
         vm.warp(block.timestamp + WINDOW + 1);
         hook.settle(0);
+        vm.expectRevert(HikaeRetroHook.AlreadySettled.selector);
+        hook.settle(0);
+    }
+
+    /// @dev A callback settles at most MAX_AUTO_SETTLE holds; the next one picks up the rest.
+    function test_callbackSettlesAtMostFourHolds() public {
+        for (uint256 i; i < 6; i++) {
+            _swap(true, -AMOUNT);
+        }
+        uint256 movedAt = block.timestamp * 1000 - 500;
+        vm.warp(block.timestamp + 3);
+        _pushReference(-100, movedAt);
+        for (uint256 i; i < 6; i++) {
+            assertEq(hook.getHold(i).settled, i < 4, "first four settled");
+        }
+        assertEq(hook.nextToSettle(), 4);
+
+        vm.warp(block.timestamp + 1);
+        _pushReference(-100, movedAt + 1000);
+        assertTrue(hook.getHold(4).settled);
+        assertTrue(hook.getHold(5).settled);
+        assertEq(hook.nextToSettle(), 6);
+        assertEq(_claims(currency1), 0);
+    }
+
+    function test_manualSettleAfterCallbackReverts() public {
+        _swap(true, -AMOUNT);
+        HikaeRetroHook.Hold memory h = hook.getHold(0);
+        vm.warp(block.timestamp + 3);
+        _pushReference(-100, uint256(h.time) * 1000 - 500);
         vm.expectRevert(HikaeRetroHook.AlreadySettled.selector);
         hook.settle(0);
     }

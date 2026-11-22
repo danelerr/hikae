@@ -15,8 +15,9 @@ contract HikaeReactive is AbstractReactive {
     uint256 public constant SWAP_TOPIC_0 =
         uint256(keccak256("Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)"));
 
-    /// @dev Callbacks below 100k gas are ignored by the network. updateReference uses well under this.
-    uint64 public constant CALLBACK_GAS_LIMIT = 250_000;
+    /// @dev Callbacks below 100k gas are ignored by the network. A reference update costs about 50k; on the retro
+    /// hook the same callback also settles up to four holds at roughly 60k each.
+    uint64 public constant CALLBACK_GAS_LIMIT = 600_000;
 
     uint256 public immutable originChainId;
     address public immutable originPoolManager;
