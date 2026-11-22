@@ -129,12 +129,34 @@ Swaps are signed by `cast send` with the keystore account in `ETH_KEYSTORE_ACCOU
 `ETH_PASSWORD` (`deploy.ps1` sets both). Each run saves `latency/results-<time>.json` with p50, p95, max and every
 transaction hash. It needs Node 23.6 or later, which runs TypeScript directly.
 
+### Measured on testnet (22 Nov 2026)
+
+10 rounds, 10 callbacks delivered. From the Base Sepolia block (time computed on-chain from its number) to the start
+of the Unichain Sepolia block that carried the callback: **p50 1.8 s, p95 2.6 s, max 2.6 s**. By block timestamps
+alone (1 s resolution): p50 2 s, p95 3 s. Raw data: `latency/results-2026-11-22T14-04-23-907Z.json`.
+
+| Round | Swap on Base | Callback on Unichain | Latency |
+|---|---|---|---|
+| 1 | [0xde9099de…](https://sepolia.basescan.org/tx/0xde9099de79be244e83b79415219bf12a47c0dc4c32cf0e86263f4712e1c52a94) | [0x9bd649b3…](https://sepolia.uniscan.xyz/tx/0x9bd649b3609a6ee7b20ae93161cc7bfd567447f126a7682765aa40164224f482) | 2.6 s |
+| 2 | [0x0afc0c17…](https://sepolia.basescan.org/tx/0x0afc0c173fb81b143376210ccc77019a34ad40af2cde822a12dd3a7542d0a253) | [0x18007ddd…](https://sepolia.uniscan.xyz/tx/0x18007ddd8a6db141ccccad192a2e5fd46f098787112d1fe889d616cd9142654f) | 1.8 s |
+| 3 | [0xc7fb8750…](https://sepolia.basescan.org/tx/0xc7fb87501b9716f642a92bd6ad718846a58ddec6079863e8c81c60807168b1a0) | [0xd977cd87…](https://sepolia.uniscan.xyz/tx/0xd977cd87ea53ab656f18b5d846ff8f9f59c905aa4d2028f84457ff5772518cd4) | 1.6 s |
+| 4 | [0x3db7b792…](https://sepolia.basescan.org/tx/0x3db7b792c7c507fac42b425ab81f97c936fbfc9bced85d2402f01a1894133512) | [0x6523d680…](https://sepolia.uniscan.xyz/tx/0x6523d680530c7e09a2aa808f0a05809d49cdf9a183272282d4d5e3ce8fb7abcb) | 2.4 s |
+| 5 | [0xadbfd053…](https://sepolia.basescan.org/tx/0xadbfd053639c1846dbabbee390c2fe5cb88748b9c10fd2e3ba69c473314b9840) | [0x022cd928…](https://sepolia.uniscan.xyz/tx/0x022cd92825b58ad4ad139994575724315e140659630c1c4f758b6f9dd940bdc4) | 1.6 s |
+| 6 | [0xf7d96d04…](https://sepolia.basescan.org/tx/0xf7d96d04aabc3e0cb4ad359201ead19dd8f9fbc8a84b87ccdd0e97729879115d) | [0x426eac79…](https://sepolia.uniscan.xyz/tx/0x426eac79e07e832993e6feb9ba0eb4e1d865e46be869e2336042bd32bfc0a622) | 2.2 s |
+| 7 | [0xcbc4574a…](https://sepolia.basescan.org/tx/0xcbc4574a39bb66f35ac2825e75b59503a6acef4bb992d952343c21b4db89e991) | [0x2e50e505…](https://sepolia.uniscan.xyz/tx/0x2e50e505041f88ef77962c08d0e43be2e065bee489dca0435e171582ab2e820a) | 1.8 s |
+| 8 | [0x0924dc9d…](https://sepolia.basescan.org/tx/0x0924dc9d5571b04b697101074b51accec82a0b66229c1990f973c2ddffa991b0) | [0xdbb47d6e…](https://sepolia.uniscan.xyz/tx/0xdbb47d6e3853c71fc83afe1b717e97923ec6edfefd506f0b146811ebd1486b63) | 2.6 s |
+| 9 | [0x37a77237…](https://sepolia.basescan.org/tx/0x37a772372fe4b1bb1df1ce45f0b1f43620b622176e475fedcccca7877aea44e9) | [0xc5ea3fb1…](https://sepolia.uniscan.xyz/tx/0xc5ea3fb1c501c3b57911e77a3d130eb89ad83593c57e341ebfc41395c800be48) | 1.8 s |
+| 10 | [0xa39287a2…](https://sepolia.basescan.org/tx/0xa39287a23e7108ac83849e618e00df83a51f3cef9815cd71474c72b267742983) | [0xcd5ddd72…](https://sepolia.uniscan.xyz/tx/0xcd5ddd72dee27dc3949c2059b901a12e0e97f34f12414b4060922058313a139d) | 2.4 s |
+
+Contracts: reactive `0x900Cd8B955d88fD7b805eDcA939f0BFB069946bd` (Lasna), hook
+`0x5C7C47e0eA8c509cABF647D13B831b2554c0A080` (Unichain Sepolia). All addresses in `deployments/testnet.env`.
+
 ## Status
 
 - [x] Hook and reactive contract, 25 tests passing
 - [x] Retroactive surcharge spike in Foundry, charging only swaps after the origin move (40 tests in total)
 - [x] Testnet deploy scripts (dry runs pass on Base Sepolia, Unichain Sepolia and Lasna)
-- [ ] Event → callback loop verified on testnet
+- [x] Event → callback loop verified on testnet (22 Nov 2026)
 - [x] Latency script (`latency/measure.ts`)
-- [ ] Latency numbers from testnet
+- [x] Latency numbers from testnet: p50 1.8 s, p95 2.6 s over 10 rounds
 - [ ] Demo video (under 3 minutes)
