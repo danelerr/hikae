@@ -14,10 +14,9 @@ first trader to close that gap takes the difference from the LPs (loss-versus-re
 hook can then charge the closing trade more. But the relay takes about 1.8 s and Base makes a block every 200 ms, so a
 bot watching Base can trade before the update and pay the base fee.
 
-Two other projects in this buildathon, [FeeReflex](https://github.com/parthpawar1117/feereflex) and
-[Lagless](https://github.com/thesithunyein/lagless), raise the fee when the callback arrives, and both say in their
-READMEs that a bot faster than the loop pays only the base fee. Hikae's first contract, `HikaeHook`, works the same
-way. `HikaeRetroHook` is the part that handles the faster bot.
+Raising the fee when the callback arrives is the usual way to use such a price feed, and Hikae's first contract,
+`HikaeHook`, does that. It cannot see a bot that trades before the update: that bot pays only the base fee.
+`HikaeRetroHook` is the part that charges it.
 
 ## How Hikae charges the faster bot
 
