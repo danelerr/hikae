@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {Script} from "forge-std/Script.sol";
 import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
@@ -10,9 +9,10 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {ModifyLiquidityParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiquidityTest.sol";
 import {Addresses} from "./Addresses.sol";
+import {Signer} from "./Signer.sol";
 
 /// @notice Shared helpers: two test tokens, a pool at price 1:1 and wide liquidity around it.
-abstract contract PoolSetup is Script {
+abstract contract PoolSetup is Signer {
     uint256 internal constant MINT_AMOUNT = 1_000_000 ether;
 
     /// @dev The two pools live on different chains with different token addresses. To make a tick mean the same

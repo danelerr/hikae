@@ -1,20 +1,24 @@
 // Full-loop latency: swap on the Base Sepolia reference pool -> Reactive Lasna -> callback on Unichain Sepolia.
 // Each round sends one swap on Base and waits for the hook's ReferenceUpdated event whose originTxHash is that swap.
 // Usage (from the project root, after the deploy steps in the README): node latency/measure.ts
-// Reads ../.env. Needs PRIVATE_KEY, REF_TOKEN0, REF_TOKEN1, HOOK and DEST_POOL_ID.
+// Reads ../.env. Needs REF_TOKEN0, REF_TOKEN1, HOOK and DEST_POOL_ID. Swaps are signed by `cast send` with the
+// Foundry keystore account in ETH_KEYSTORE_ACCOUNT and the password file in ETH_PASSWORD (deploy.ps1 sets both),
+// so no private key goes through this script.
 // Optional: ROUNDS (10), AMOUNT in wei (50e18), PAUSE_MS between rounds (15000), TIMEOUT_MS per round (60000).
+import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { createPublicClient, createWalletClient, http, parseAbi, parseAbiItem, type Hex } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import { createPublicClient, http, parseAbiItem, type Hex } from "viem";
 import { baseSepolia, unichainSepolia } from "viem/chains";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-try {
-  process.loadEnvFile(join(root, ".env"));
-} catch {
-  // no .env: rely on the environment
+for (const file of [join(root, "deployments", "testnet.env"), join(root, ".env")]) {
+  try {
+    process.loadEnvFile(file);
+  } catch {
+    // missing file: rely on the environment
+  }
 }
 
 function env(name: string, fallback?: string): string {
@@ -32,21 +36,17 @@ const MAX_SQRT_PRICE_MINUS_ONE = 14614467034852101032872730522039888223787239703
 const TICK_SPACING = 60;
 const REF_FEE = 3000;
 
-const swapRouterAbi = parseAbi([
-  "struct PoolKey { address currency0; address currency1; uint24 fee; int24 tickSpacing; address hooks; }",
-  "struct SwapParams { bool zeroForOne; int256 amountSpecified; uint160 sqrtPriceLimitX96; }",
-  "struct TestSettings { bool takeClaims; bool settleUsingBurn; }",
-  "function swap(PoolKey key, SwapParams params, TestSettings testSettings, bytes hookData) payable returns (int256)",
-]);
 const referenceUpdated = parseAbiItem(
   "event ReferenceUpdated(bytes32 indexed poolId, int24 tick, uint256 originChainId, uint256 originBlock, uint256 originTxHash, uint256 originTimeMs)",
 );
 
-const account = privateKeyToAccount(env("PRIVATE_KEY") as Hex);
-const baseTransport = http(env("BASE_SEPOLIA_RPC", "https://sepolia.base.org"));
+env("ETH_KEYSTORE_ACCOUNT");
+env("ETH_PASSWORD");
+const wallet = process.env.WALLET ?? process.env.ETH_KEYSTORE_ACCOUNT;
+const baseRpc = env("BASE_SEPOLIA_RPC", "https://sepolia.base.org");
+const baseTransport = http(baseRpc);
 const uniTransport = http(env("UNICHAIN_SEPOLIA_RPC", "https://sepolia.unichain.org"));
 const base = createPublicClient({ chain: baseSepolia, transport: baseTransport });
-const baseWallet = createWalletClient({ account, chain: baseSepolia, transport: baseTransport });
 const uni = createPublicClient({ chain: unichainSepolia, transport: uniTransport });
 
 const key = {
@@ -84,6 +84,30 @@ type Round = {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/// Signs and sends one swap on the reference pool with cast and the keystore account; returns the tx hash.
+function sendSwap(zeroForOne: boolean): Hex {
+  const limit = zeroForOne ? MIN_SQRT_PRICE_PLUS_ONE : MAX_SQRT_PRICE_MINUS_ONE;
+  const out = execFileSync(
+    "cast",
+    [
+      "send",
+      BASE_SWAP_ROUTER,
+      "swap((address,address,uint24,int24,address),(bool,int256,uint160),(bool,bool),bytes)",
+      `(${key.currency0},${key.currency1},${key.fee},${key.tickSpacing},${key.hooks})`,
+      `(${zeroForOne},-${amount},${limit})`,
+      "(false,false)",
+      "0x",
+      "--rpc-url",
+      baseRpc,
+      "--async",
+    ],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
+  ).trim();
+  const hash = out.split(/\s+/).find((word) => /^0x[0-9a-fA-F]{64}$/.test(word));
+  if (!hash) throw new Error(`cast send did not return a transaction hash: ${out}`);
+  return hash as Hex;
+}
+
 async function waitForCallback(baseTx: Hex, fromBlock: bigint) {
   const deadline = Date.now() + timeoutMs;
   let cursor = fromBlock;
@@ -113,7 +137,7 @@ function percentile(sorted: number[], p: number) {
 }
 
 async function main() {
-  console.log(`Wallet ${account.address}, ${rounds} rounds, hook ${hook}`);
+  console.log(`Wallet ${wallet}, ${rounds} rounds, hook ${hook}`);
   const results: Round[] = [];
 
   for (let i = 0; i < rounds; i++) {
@@ -121,21 +145,7 @@ async function main() {
     const zeroForOne = i % 2 === 0;
     const uniStart = await uni.getBlockNumber();
 
-    const baseTx = await baseWallet.writeContract({
-      address: BASE_SWAP_ROUTER,
-      abi: swapRouterAbi,
-      functionName: "swap",
-      args: [
-        key,
-        {
-          zeroForOne,
-          amountSpecified: -amount,
-          sqrtPriceLimitX96: zeroForOne ? MIN_SQRT_PRICE_PLUS_ONE : MAX_SQRT_PRICE_MINUS_ONE,
-        },
-        { takeClaims: false, settleUsingBurn: false },
-        "0x",
-      ],
-    });
+    const baseTx = sendSwap(zeroForOne);
     const receipt = await base.waitForTransactionReceipt({ hash: baseTx, pollingInterval: POLL_MS });
     const receiptSeenAt = Date.now();
     const baseBlock = await base.getBlock({ blockNumber: receipt.blockNumber });

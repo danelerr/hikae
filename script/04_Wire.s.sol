@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.29;
 
-import {Script, console2} from "forge-std/Script.sol";
+import {console2} from "forge-std/Script.sol";
+import {Signer} from "./Signer.sol";
 import {ReflejoReactive} from "../src/ReflejoReactive.sol";
 import {Addresses, IDepositTo} from "./Addresses.sol";
 
@@ -11,10 +12,10 @@ import {Addresses, IDepositTo} from "./Addresses.sol";
 /// The origin clock defaults to Base Sepolia's schedule, checked on 22 Nov 2026 to be exactly 200 ms per block over
 /// the previous 5,000,000 blocks. Override with ORIGIN_ANCHOR_BLOCK, ORIGIN_ANCHOR_TIME_MS and ORIGIN_BLOCK_TIME_MS.
 /// forge script script/04_Wire.s.sol --rpc-url lasna --broadcast
-contract Wire is Script {
+contract Wire is Signer {
     function run() external {
         require(block.chainid == Addresses.LASNA, "run on Reactive Lasna");
-        uint256 pk = vm.envUint("PRIVATE_KEY");
+        _signer();
         ReflejoReactive reactive = ReflejoReactive(payable(vm.envAddress("REACTIVE")));
         address hook = vm.envAddress("HOOK");
         bytes32 destPoolId = vm.envBytes32("DEST_POOL_ID");
@@ -24,7 +25,7 @@ contract Wire is Script {
         uint64 anchorTimeMs = uint64(vm.envOr("ORIGIN_ANCHOR_TIME_MS", uint256(1_795_353_716_000)));
         uint32 blockTimeMs = uint32(vm.envOr("ORIGIN_BLOCK_TIME_MS", uint256(200)));
 
-        vm.startBroadcast(pk);
+        vm.startBroadcast();
         reactive.setDestination(hook, destPoolId, invertTick);
         reactive.setOriginClock(anchorBlock, anchorTimeMs, blockTimeMs);
         IDepositTo(Addresses.REACTIVE_SYSTEM).depositTo{value: reserves}(address(reactive));

@@ -18,10 +18,9 @@ contract ReferencePool is PoolSetup {
 
     function run() external {
         require(block.chainid == Addresses.BASE_SEPOLIA, "run on Base Sepolia");
-        uint256 pk = vm.envUint("PRIVATE_KEY");
-        address deployer = vm.addr(pk);
+        address deployer = _signer();
 
-        vm.startBroadcast(pk);
+        vm.startBroadcast();
         (Currency c0, Currency c1) =
             _deployTokenPair(deployer, [Addresses.BASE_MODIFY_LIQUIDITY, Addresses.BASE_SWAP_ROUTER]);
         PoolKey memory key = _initWithLiquidity(
@@ -36,7 +35,6 @@ contract ReferencePool is PoolSetup {
 
         console2.log("REF_TOKEN0=%s", Currency.unwrap(c0));
         console2.log("REF_TOKEN1=%s", Currency.unwrap(c1));
-        console2.log("REF_POOL_ID=");
-        console2.logBytes32(PoolId.unwrap(key.toId()));
+        console2.log("REF_POOL_ID=%s", vm.toString(PoolId.unwrap(key.toId())));
     }
 }

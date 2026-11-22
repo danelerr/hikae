@@ -23,8 +23,7 @@ contract HookAndPool is PoolSetup {
 
     function run() external {
         require(block.chainid == Addresses.UNICHAIN_SEPOLIA, "run on Unichain Sepolia");
-        uint256 pk = vm.envUint("PRIVATE_KEY");
-        address deployer = vm.addr(pk);
+        address deployer = _signer();
         address reactive = vm.envAddress("REACTIVE");
         uint256 funding = vm.envOr("HOOK_FUNDING", uint256(0.01 ether));
 
@@ -37,7 +36,7 @@ contract HookAndPool is PoolSetup {
         (address expected, bytes32 salt) =
             HookMiner.find(Addresses.CREATE2_DEPLOYER, flags, type(ReflejoHook).creationCode, args);
 
-        vm.startBroadcast(pk);
+        vm.startBroadcast();
         ReflejoHook hook = new ReflejoHook{salt: salt}(
             IPoolManager(Addresses.UNICHAIN_POOL_MANAGER), Addresses.UNICHAIN_CALLBACK_PROXY, reactive, deployer, config
         );
@@ -61,7 +60,6 @@ contract HookAndPool is PoolSetup {
         console2.log("HOOK=%s", address(hook));
         console2.log("DEST_TOKEN0=%s", Currency.unwrap(c0));
         console2.log("DEST_TOKEN1=%s", Currency.unwrap(c1));
-        console2.log("DEST_POOL_ID=");
-        console2.logBytes32(PoolId.unwrap(key.toId()));
+        console2.log("DEST_POOL_ID=%s", vm.toString(PoolId.unwrap(key.toId())));
     }
 }

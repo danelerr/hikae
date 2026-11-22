@@ -56,36 +56,42 @@ The reactive tests etch a mock of the system contract at `0x8888…8888`. The ho
 
 ## Deploy (testnet)
 
-Use a dedicated testnet wallet. Copy `.env.example` to `.env`, fill `PRIVATE_KEY`, then `source .env` (or export
-the variables) before each step. Every script prints the values the next step needs.
+Scripts sign with a Foundry keystore account, so no private key is stored in the repo or in `.env`. Import one
+with `cast wallet import <name> --interactive` if you do not have it yet.
+
+`deploy.ps1` runs the whole sequence and asks for the keystore password once. It writes the password to a temporary
+file that forge and cast read through `ETH_PASSWORD`, and deletes it when it finishes:
+
+```powershell
+pwsh -File .\deploy.ps1 -Account <keystore name> -Sender <its address>
+```
+
+It requests lREACT from the [Reactive faucet](https://dev.reactive.network/reactive-mainnet) on Base Sepolia if the
+balance on Lasna is below 2.5, runs the four deploy steps, saves every address in `deployments/testnet.env` (a second
+run resumes from there; `-Fresh` starts over) and ends with the latency run below.
 
 Funds needed (from dry runs on 21 Nov 2026):
 
 | Chain | For | Amount |
 |---|---|---|
-| Base Sepolia | steps 1 and 5, plus lREACT from the faucet | ~0.06 ETH |
+| Base Sepolia | steps 1 and 5, plus 0.05 ETH for 5 lREACT from the faucet | ~0.11 ETH |
 | Unichain Sepolia | step 3 and prepaying the hook's callbacks | ~0.02 ETH |
 | Reactive Lasna | step 2 deploy (~0.23 lREACT of gas) + funding + reserves | ~2.5 lREACT |
 
-lREACT comes from the faucet contract on Base Sepolia (1 ETH = 100 lREACT, max 5 ETH per tx):
+The same steps one by one:
 
 ```sh
-cast send 0x2afaFD298b23b62760711756088F75B7409f5967 "request(address)" $WALLET   --value 0.05ether --rpc-url $BASE_SEPOLIA_RPC --private-key $PRIVATE_KEY
-```
-
-Steps:
-
-```sh
+SIGNER="--account <keystore name> --sender <its address>"
 # 1. Base Sepolia: reference pool          -> REF_TOKEN0, REF_TOKEN1, REF_POOL_ID
-forge script script/01_ReferencePool.s.sol --rpc-url base_sepolia --broadcast
+forge script script/01_ReferencePool.s.sol --rpc-url base_sepolia --broadcast $SIGNER
 # 2. Lasna: reactive contract              -> REACTIVE
-forge script script/02_Reactive.s.sol --rpc-url lasna --broadcast
+forge script script/02_Reactive.s.sol --rpc-url lasna --broadcast $SIGNER
 # 3. Unichain Sepolia: hook + dynamic pool -> HOOK, DEST_POOL_ID
-forge script script/03_HookAndPool.s.sol --rpc-url unichain_sepolia --broadcast
-# 4. Lasna: point the reactive contract at the hook and add reserves
-forge script script/04_Wire.s.sol --rpc-url lasna --broadcast
+forge script script/03_HookAndPool.s.sol --rpc-url unichain_sepolia --broadcast $SIGNER
+# 4. Lasna: point the reactive contract at the hook, set the Base clock and add reserves
+forge script script/04_Wire.s.sol --rpc-url lasna --broadcast $SIGNER
 # 5. Base Sepolia: move the reference price, then watch ReferenceUpdated on Unichain
-forge script script/05_MovePrice.s.sol --rpc-url base_sepolia --broadcast
+forge script script/05_MovePrice.s.sol --rpc-url base_sepolia --broadcast $SIGNER
 ```
 
 Order follows the Reactive docs: reactive contract first, then the callback contract (the hook) with the reactive
@@ -116,11 +122,12 @@ Unichain Sepolia whose `originTxHash` is that swap, and reports the full loop (o
 
 ```bash
 cd latency && npm install && cd ..
-node latency/measure.ts   # reads .env; ROUNDS=10 by default, alternating swap direction
+node latency/measure.ts   # reads deployments/testnet.env; ROUNDS=10 by default, alternating direction
 ```
 
-Each run saves `latency/results-<time>.json` with p50, p95, max and every transaction hash. It needs Node 23.6 or
-later, which runs TypeScript directly.
+Swaps are signed by `cast send` with the keystore account in `ETH_KEYSTORE_ACCOUNT` and the password file in
+`ETH_PASSWORD` (`deploy.ps1` sets both). Each run saves `latency/results-<time>.json` with p50, p95, max and every
+transaction hash. It needs Node 23.6 or later, which runs TypeScript directly.
 
 ## Status
 
