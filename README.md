@@ -156,9 +156,9 @@ Contracts: reactive `0x900Cd8B955d88fD7b805eDcA939f0BFB069946bd` (Lasna), hook
 Retro hook `0xF2B55986DbAbFDEfe9a453379c242A58F88C60c4` (Unichain Sepolia), fed by a second reactive contract
 `0xae77c3F3db27F688431372B41CFcdDd4916386f0` (Lasna) that watches the same Base pool. Each round moves the Base price
 about 100 ticks, then swaps 1 token on Unichain before the callback lands. In all four rounds the swap ran earlier in
-the same Unichain block than the reference, so it paid only the 0.30% base fee; settlement then charged the
-skipped part of the dynamic fee (0.72% for a ~100 tick gap) out of the 1% hold, donated it to in-range LPs and
-refunded the rest. Amounts in tokens:
+the same Unichain block than the reference, so it paid only the 0.30% base fee. With the reference in place the
+dynamic fee for a ~100 tick gap is 0.72%, so settlement charged the 0.42% the swap skipped out of its 1% hold,
+donated it to in-range LPs and refunded the rest. Amounts in tokens:
 
 | Round | Swap and hold | Reference | Tick | Settlement | To LPs | Refunded |
 |---|---|---|---|---|---|---|
