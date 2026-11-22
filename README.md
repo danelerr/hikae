@@ -1,25 +1,74 @@
 # Reflejo
 
-A Uniswap v4 hook on Unichain that charges a higher fee only to the swaps that arbitrage a stale price.
-The reference price comes from a pool on Base, relayed by a Reactive Network contract in about a second.
+A Uniswap v4 hook that makes cross-chain arbitrage pay the LPs it takes from, including the arbitrage that lands
+before the price update does.
 
-Built for the Reactive Omni Buildathon, track **Every Second Counts**.
+Reactive Network relays the price of a Base pool to a Unichain pool in about 1.8 seconds. Hooks that raise the fee
+when that update arrives cannot touch the bot that trades in the meantime. Reflejo holds back 1% of every swap for a
+few seconds; when the update lands, swaps that traded against the stale price pay the fee they skipped, which goes
+to the LPs, and everyone else gets the hold back.
+
+Built for the Reactive Omni Buildathon, track **Every Second Counts**. Everything below runs on Base Sepolia,
+Reactive Lasna and Unichain Sepolia, with the transactions linked.
+
+## Results on testnet
+
+- **Loop latency**, from the Base block to the Unichain block that carries the callback: p50 1.8 s, p95 2.6 s,
+  10 of 10 callbacks delivered ([details](#measured-on-testnet-22-nov-2026)).
+- **Arbitrage ahead of the callback**: the same swap, 1.6 s after the Base move, paid 0.30% on a v1 pool and 0.30%
+  plus 0.42% on the Reflejo pool, the 0.42% donated to its LPs after the callback
+  ([case A](#race-demo-case-a-latencyrace-2026-11-22t14-36-52-258zjson)); charged in 4 of 4 earlier rounds too.
+- **A swap before the move** got its whole hold back ([case B](#race-demo-case-b-latencyrace-2026-11-22t14-42-46-415zjson)).
+- 40 Foundry tests, including the timing rule and exact-output holds.
 
 ## Why
 
-When the price moves on one chain, the same pool on another chain keeps the old price for a while. The first
-trader to close that gap takes value from the LPs (loss-versus-rebalancing). The faster the pool learns about the
-move, the less the LPs lose. Reflejo uses Reactive to learn about it fast, and the hook charges the trade that
-closes the gap a fee that grows with its size. Swaps in the other direction keep paying the base fee.
+When the price moves on one chain, the same pool on another chain keeps the old price for a while. The first trader
+to close that gap takes value from the LPs: loss-versus-rebalancing
+([Milionis et al.](https://arxiv.org/abs/2208.06046)). A hook can charge that trade more, but only once it knows the
+new price. Base Sepolia makes a block every 200 ms and the Reactive loop takes about 1.8 s, so a bot watching Base
+directly gets several chances to trade first and pay the base fee.
+
+## Prior work and what is new
+
+Two projects built for this buildathon already raise a Unichain pool's fee when a Reactive callback reports a price
+move on Base: [FeeReflex](https://github.com/parthpawar1117/feereflex) and
+[Lagless](https://github.com/thesithunyein/lagless). Both document the same limit: an arbitrageur faster than the
+loop pays only the base fee. Reflejo's first contract, `ReflejoHook`, is the same idea, with a fee of the same shape
+(base fee plus a share of the gap above it). It is the base this project builds on, not its contribution.
+
+What Reflejo adds is `ReflejoRetroHook`, which charges the arbitrage that beats the callback:
+
+- **Retroactive surcharge.** Every swap leaves 1% of its unspecified amount as ERC-6909 claims for up to 8 s.
+  Settlement, which anyone can trigger, donates the skipped fee to in-range LPs and refunds the rest.
+- **Timing rule.** Only swaps that happened after the Base price moved are charged. The callback carries the exact
+  time of the Base block, computed by the reactive contract from its number, since the Reactive log record has no
+  timestamp. A swap that came first traded at the right price and gets everything back.
+- **No way around the hold.** It applies to exact-input and exact-output swaps alike, and refunds reach the account
+  behind routers that expose `IMsgSender`.
+
+## Known limits
+
+- **Quotes.** The hold makes every swap quote about 1% worse until it is refunded. Aggregators route on quotes, so
+  benign flow could go to other pools. A smaller hold, or holding only after large moves, would soften this.
+- **Who receives the surcharge.** It goes to the LPs in range at settlement, not necessarily those who were in range
+  when the arbitrage happened, which leaves room for just-in-time liquidity.
+- **Gas.** A swap goes from about 60k to 165k gas, and each settlement costs about 43k. Storing a hash of the hold
+  instead of the full record is the next optimization; settlement could be triggered by Reactive itself.
+- **Price leader.** The reference pool is assumed to lead the price. In production the reference should be the pool
+  where price discovery happens.
+- Not audited.
 
 ## How it works
 
 ```
 Base Sepolia                    Reactive Lasna                    Unichain Sepolia
-reference pool ── Swap event ──▶ ReflejoReactive ── callback ───▶ ReflejoHook
-(PoolManager)                    subscribes to the pool's         stores the reference tick
-                                 Swap events, debounces small     and prices each swap in
-                                 moves, requests a callback       beforeSwap
+reference pool ── Swap event ──▶ ReflejoReactive ── callback ───▶ ReflejoHook (v1)
+(PoolManager)                    subscribes to the pool's         fee from the reference
+                                 Swap events, debounces small
+                                 moves, adds the Base block       ReflejoRetroHook
+                                 time, requests a callback        v1 fee + 1% hold, settled
+                                                                  once the reference lands
 ```
 
 - `src/ReflejoReactive.sol` (Reactive Lasna): subscribes to `Swap` events of one PoolId on the Base Sepolia
@@ -34,7 +83,7 @@ reference pool ── Swap event ──▶ ReflejoReactive ── callback ─�
   - The swap moves the price away from the reference, or there is no fresh reference (`maxAge`): `baseFee`.
 - Only the Reactive callback proxy can call `updateReference`, and only on behalf of the configured reactive
   contract.
-- `src/ReflejoRetroHook.sol` (spike): covers the arbitrage that lands before the callback, which the fee above
+- `src/ReflejoRetroHook.sol`: covers the arbitrage that lands before the callback, which the fee above
   cannot see. It holds back `holdBps` of every swap's unspecified amount (output on exact input, input on exact
   output) as ERC-6909 claims. Anyone can call `settle(holdId)`: if the first reference after the swap landed within
   `window` seconds and the swap traded toward it, the fee the swap skipped is donated to in-range LPs and the rest
@@ -68,7 +117,9 @@ pwsh -File .\deploy.ps1 -Account <keystore name> -Sender <its address>
 
 It requests lREACT from the [Reactive faucet](https://dev.reactive.network/reactive-mainnet) on Base Sepolia if the
 balance on Lasna is below 2.5, runs the four deploy steps, saves every address in `deployments/testnet.env` (a second
-run resumes from there; `-Fresh` starts over) and ends with the latency run below.
+run resumes from there; `-Fresh` starts over) and ends with the latency run below. `-Retro` then adds a second
+reactive contract, the retro hook with its pool and a demo router, and runs `latency/race.ts` (cases A and B; `CASE=B`
+runs one).
 
 Funds needed (from dry runs on 21 Nov 2026):
 
