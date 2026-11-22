@@ -175,6 +175,13 @@ callback landed:
 - **v1 pool:** [swap](https://sepolia.uniscan.xyz/tx/0x9f09aa6de0a6b4677a159a2363d7d2f9caebc37d86aafafd309cdfd2404e84dd) paid 3000 pips, the base fee. Nothing else happens: the arbitrage beat the reference.
 - **Retro pool:** [swap](https://sepolia.uniscan.xyz/tx/0x7544bb96ea18532e286c174d99de0101fdcecbd8d19aa5067a98eba0a2e247aa) paid 3000 pips and held 0.009969105452348999. The [reference](https://sepolia.uniscan.xyz/tx/0x98fce5249f0f49992847c239a0824c9c3e082bdedcb809493772e0b2848035fc) (-98) landed one block later; [settlement](https://sepolia.uniscan.xyz/tx/0x918b3d388e65fca1768c36ccd7380c04e7d1f0aa4cfd89991c32350c82382bab) sent **0.004007** to LPs and refunded 0.005961.
 
+#### Race demo, case B (`latency/race-2026-11-22T14-42-46-415Z.json`)
+
+A 1-token [swap](https://sepolia.uniscan.xyz/tx/0x03e4ca925602b80f467de906a1aad25734faf2e19a06409d0176d0b131e6adb8) ran on the retro pool in block time 1795358553; Base [moved](https://sepolia.basescan.org/tx/0xe314c104b52f9f6a78298ea4feab4d4aadb86ffef68c2b156be5b06039473dfe)
+at 1795358558.6, after the swap. The [reference](https://sepolia.uniscan.xyz/tx/0xd22ece77f3dd79bba0377f5fe55b76b701ae86f92a8fda1d99026209122f394c) (-97) landed at
+1795358561, inside the 8 s window, so only the timing rule decided: [settlement](https://sepolia.uniscan.xyz/tx/0xf6412a7dc50ab314f723fa7836b26458611bfb214860ee8afbf35880e01f6e48) sent
+**0** to LPs and refunded the whole hold (0.009968). The swap traded at the right price when it happened.
+
 `latency/race.ts` reproduces this and also runs the opposite case: a swap made before the Base move, which gets its
 whole hold back.
 
@@ -187,5 +194,5 @@ whole hold back.
 - [x] Latency script (`latency/measure.ts`)
 - [x] Latency numbers from testnet: p50 1.8 s, p95 2.6 s over 10 rounds
 - [x] Retroactive surcharge charged on testnet, 4 of 4 rounds (22 Nov 2026)
-- [ ] Race demo with the before-the-move case on testnet
+- [x] Race demo on testnet: case A (v1 vs retro) and case B (swap before the move, full refund)
 - [ ] Demo video (under 3 minutes)
