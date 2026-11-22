@@ -42,7 +42,7 @@ const sourcify = (address?: string) => {
   return `[Sourcify: ${label}](https://sourcify.dev/#/lookup/${address})`;
 };
 const pct = (pips: number) => `${(pips / 10000).toFixed(2)}%`;
-const amount = (value: string) => Number(value).toFixed(5);
+const amount = (value: string) => (Number(value) === 0 ? "0" : Number(value).toFixed(5));
 const seconds = (ms?: number) => (ms === undefined || ms === null ? "—" : `${(ms / 1000).toFixed(1)} s`);
 
 const uni = createPublicClient({ chain: unichainSepolia, transport: http(process.env.UNICHAIN_SEPOLIA_RPC ?? "https://sepolia.unichain.org") });
@@ -154,7 +154,7 @@ if (raceB) {
   lines.push(
     `A 1-token swap (${tx(UNI, b.swapTx)}) ran on the Hikae pool at block time ${b.swapBlockTime}. Base moved ` +
       `afterwards (${tx(BASE, b.baseTx)}, at ${(b.movedAtMs / 1000).toFixed(1)}). The reference was relayed ` +
-      `(${tx(LASNA, b.reactiveTx)}) and landed ${tx(UNI, b.callbackTx)} at ${b.callbackLandedAt}, inside the window. ` +
+      `(${tx(LASNA, b.reactiveTx)}), and the callback ${tx(UNI, b.callbackTx)} landed at ${b.callbackLandedAt}, inside the window. ` +
       `Result: **${amount(b.toLPs)} to LPs, ${amount(b.refund)} refunded**. Why: ${b.reason}.`,
     "",
   );
