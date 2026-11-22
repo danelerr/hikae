@@ -50,8 +50,16 @@ function Save-Value([string]$Name, [string]$Value) {
 
 function Invoke-Step([string]$Title, [string]$Script, [string]$Rpc) {
     Write-Host "`n== $Title" -ForegroundColor Cyan
-    $lines = & forge script $Script --rpc-url $Rpc --broadcast --slow --account $Account --sender $Sender 2>&1 |
-        ForEach-Object { "$_" }
+    # Windows PowerShell 5.1 turns any stderr line of a native command into an error record, and forge prints
+    # harmless warnings there. Judge the step by its exit code instead.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $lines = & forge script $Script --rpc-url $Rpc --broadcast --slow --account $Account --sender $Sender 2>&1 |
+            ForEach-Object { "$_" }
+    } finally {
+        $ErrorActionPreference = $previous
+    }
     $lines | ForEach-Object { Write-Host $_ }
     if ($LASTEXITCODE -ne 0) { throw "$Title failed, see the output above. Run the script again to resume." }
     foreach ($line in $lines) {
