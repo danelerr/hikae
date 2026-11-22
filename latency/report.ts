@@ -114,14 +114,14 @@ if (latency) {
   );
   lines.push(
     `**p50 ${seconds(s.onchainLatencyMs?.p50)}, p95 ${seconds(s.onchainLatencyMs?.p95)}, max ${seconds(s.onchainLatencyMs?.max)}.**` +
-      (s.baseToLasnaMs ? ` Base → Lasna p50 ${seconds(s.baseToLasnaMs.p50)}; Lasna → Unichain p50 ${s.lasnaToUnichainS?.p50 ?? "—"} s (whole-second block times).` : ""),
+      " Lasna block timestamps run a second or two behind the other two chains, so the table gives the reactive " +
+      "transaction for each loop but no per-leg times.",
     "",
   );
-  lines.push("| # | Swap on Base | Reactive tx on Lasna | Callback on Unichain | Base → Lasna | Lasna → Unichain | Total |", "|---|---|---|---|---|---|---|");
+  lines.push("| # | Swap on Base | Reactive tx on Lasna | Callback on Unichain | Base → Unichain |", "|---|---|---|---|---|");
   for (const r of latency.data.results) {
     lines.push(
-      `| ${r.round} | ${tx(BASE, r.baseTx)} | ${tx(LASNA, r.lasnaTx)} | ${tx(UNI, r.uniTx)} | ${seconds(r.baseToLasnaMs)} | ` +
-        `${r.lasnaToUnichainS === undefined ? "—" : `${r.lasnaToUnichainS} s`} | ${seconds(r.onchainLatencyMs)} |`,
+      `| ${r.round} | ${tx(BASE, r.baseTx)} | ${tx(LASNA, r.lasnaTx)} | ${tx(UNI, r.uniTx)} | ${seconds(r.onchainLatencyMs)} |`,
     );
   }
   lines.push("");

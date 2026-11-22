@@ -174,7 +174,7 @@ Results from the latest run are written to [TESTNET.md](TESTNET.md) by `latency/
 
 - [x] Hook, retro hook and reactive contract, 42 Foundry tests
 - [x] Deployed on Base Sepolia, Reactive Lasna and Unichain Sepolia with `deploy.ps1`
-- [x] Full loop on testnet with latency per leg ([TESTNET.md](TESTNET.md))
+- [x] Full loop on testnet, with the reactive transaction of every loop ([TESTNET.md](TESTNET.md))
 - [x] Race demo on testnet: a swap ahead of the callback, and a swap before the move
 - [x] Holds settled inside the Reactive callback
 - [ ] Demo video (under 3 minutes)
