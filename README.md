@@ -6,12 +6,14 @@ A Uniswap v4 hook on Unichain that charges cross-chain arbitrage for the price g
 arbitrage that trades before the new price has arrived. Built for the Reactive Omni Buildathon, track Every Second
 Counts. *Hikae* (控え) is Japanese for something kept in reserve.
 
+Demo video (2:28): https://youtu.be/wMlA5M6cyoI
+
 ## The problem
 
 When the price moves on Base, the same pair on Unichain keeps the old price until something tells it otherwise. The
 first trader to close that gap takes the difference from the LPs (loss-versus-rebalancing,
 [Milionis et al.](https://arxiv.org/abs/2208.06046)). A Reactive contract can relay the Base price to Unichain, and a
-hook can then charge the closing trade more. But the relay takes about 1.8 s and Base makes a block every 200 ms, so a
+hook can then charge the closing trade more. But the relay takes about 1.6 s and Base makes a block every 200 ms, so a
 bot watching Base can trade before the update and pay the base fee.
 
 Raising the fee when the callback arrives is the usual way to use such a price feed, and Hikae's first contract,
@@ -176,4 +178,4 @@ Results from the latest run are written to [TESTNET.md](TESTNET.md) by `latency/
 - [x] Full loop on testnet, with the reactive transaction of every loop ([TESTNET.md](TESTNET.md))
 - [x] Race demo on testnet: a swap ahead of the callback, and a swap before the move
 - [x] Holds settled inside the Reactive callback
-- [ ] Demo video (under 3 minutes)
+- [x] Demo video, 2:28: https://youtu.be/wMlA5M6cyoI
