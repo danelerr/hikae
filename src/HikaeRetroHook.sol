@@ -111,7 +111,7 @@ contract HikaeRetroHook is HikaeHook, IUnlockCallback {
     // Admin
     // ---------------------------------------------------------------------
 
-    /// @notice Routers that implement IMsgSender, so refunds go to the person behind them and not the router.
+    /// @notice Routers that implement IMsgSender. Refunds for swaps made through them go to the account behind the router.
     function setTrustedRouter(address router, bool trusted) external onlyOwner {
         trustedRouter[router] = trusted;
         emit TrustedRouterSet(router, trusted);

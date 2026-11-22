@@ -4,6 +4,8 @@
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { createPublicClient, http, type Hex } from "viem";
+import { unichainSepolia } from "viem/chains";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const latencyDir = join(root, "latency");
@@ -26,22 +28,35 @@ const pct = (pips: number) => `${(pips / 10000).toFixed(2)}%`;
 const amount = (value: string) => Number(value).toFixed(5);
 const seconds = (ms?: number) => (ms === undefined || ms === null ? "—" : `${(ms / 1000).toFixed(1)} s`);
 
-function newest(prefix: string, accept: (data: any) => boolean) {
+const uni = createPublicClient({ chain: unichainSepolia, transport: http(process.env.UNICHAIN_SEPOLIA_RPC ?? "https://sepolia.unichain.org") });
+
+/// True if the Unichain transaction emitted an event from `contract`: ties a result file to the deployed contracts.
+async function emittedBy(hash: string | undefined, contract: string | undefined) {
+  if (!hash || !contract) return false;
+  try {
+    const receipt = await uni.getTransactionReceipt({ hash: hash as Hex });
+    return receipt.logs.some((log) => log.address.toLowerCase() === contract.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+async function newest(prefix: string, accept: (data: any) => Promise<boolean>) {
   const files = readdirSync(latencyDir)
     .filter((f) => f.startsWith(prefix) && f.endsWith(".json"))
     .sort()
     .reverse();
   for (const file of files) {
     const data = JSON.parse(readFileSync(join(latencyDir, file), "utf8"));
-    if (accept(data)) return { file: `latency/${file}`, data };
+    if (await accept(data)) return { file: `latency/${file}`, data };
   }
   return undefined;
 }
 
-// Only runs against the contracts deployed now count.
-const latency = newest("results-", (d) => d.results?.length > 0 && !!d.results[0].uniTx);
-const raceA = newest("race-", (d) => !!d.caseA);
-const raceB = newest("race-", (d) => !!d.caseB);
+// Only runs against the contracts deployed now count: a redeploy leaves older result files behind.
+const latency = await newest("results-", async (d) => d.results?.length > 0 && (await emittedBy(d.results[0].uniTx, env.HOOK)));
+const raceA = await newest("race-", async (d) => !!d.caseA && (await emittedBy(d.caseA.retro?.callbackTx, env.RETRO_HOOK)));
+const raceB = await newest("race-", async (d) => !!d.caseB && (await emittedBy(d.caseB.callbackTx, env.RETRO_HOOK)));
 
 const lines: string[] = [];
 const now = new Date().toISOString().slice(0, 16).replace("T", " ");
@@ -128,24 +143,24 @@ if (latency) {
   const s = latency.data.summary;
   const first = latency.data.results.find((r: any) => r.lasnaTx) ?? latency.data.results[0];
   block.push(
-    `- **Loop latency**, Base block to the Unichain block with the callback: p50 ${seconds(s.onchainLatencyMs?.p50)}, ` +
-      `p95 ${seconds(s.onchainLatencyMs?.p95)}, ${s.delivered} of ${s.rounds} callbacks delivered. One loop: ` +
+    `- Loop latency, from the Base block to the Unichain block with the callback: p50 ${seconds(s.onchainLatencyMs?.p50)}, ` +
+      `p95 ${seconds(s.onchainLatencyMs?.p95)} (${s.delivered} of ${s.rounds} callbacks delivered). One loop: ` +
       `${tx(BASE, first.baseTx)} on Base → ${tx(LASNA, first.lasnaTx)} on Lasna → ${tx(UNI, first.uniTx)} on Unichain.`,
   );
 }
 if (raceA) {
   const a = raceA.data.caseA;
   block.push(
-    `- **Arbitrage ahead of the callback**: the same swap paid ${pct(a.v1.feePips)} on the v1 pool and ` +
-      `${pct(a.retro.feePaidPips)} on the Hikae pool, which then sent ${amount(a.retro.toLPs)} to its LPs` +
-      `${a.retro.settledByCallback ? " in the callback itself" : ""} and refunded ${amount(a.retro.refund)}.`,
+    `- A swap ahead of the callback paid ${pct(a.v1.feePips)} on the v1 pool. The same swap on the Hikae pool paid ` +
+      `${pct(a.retro.feePaidPips)}, then ${amount(a.retro.toLPs)} more to its LPs once the price arrived` +
+      `${a.retro.settledByCallback ? " (settled in the callback)" : ""}; ${amount(a.retro.refund)} of its hold came back.`,
   );
 }
 if (raceB) {
   const b = raceB.data.caseB;
-  block.push(`- **A swap before the move** got its whole hold back (${amount(b.refund)}).`);
+  block.push(`- A swap made before the Base move got its whole hold back (${amount(b.refund)}).`);
 }
-block.push("- Every contract and transaction, with explorer links: [TESTNET.md](TESTNET.md).", "<!-- testnet:end -->");
+block.push("<!-- testnet:end -->");
 
 const readmePath = join(root, "README.md");
 const readme = readFileSync(readmePath, "utf8");

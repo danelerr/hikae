@@ -2,117 +2,82 @@
 
 # Hikae
 
-*Hikae* (控え) is Japanese for what you keep back in reserve.
+A Uniswap v4 hook on Unichain that charges cross-chain arbitrage for the price gap it closes, including the
+arbitrage that trades before the new price has arrived. Built for the Reactive Omni Buildathon, track Every Second
+Counts. *Hikae* (控え) is Japanese for something kept in reserve.
 
-A Uniswap v4 hook that makes cross-chain arbitrage pay the LPs it takes from, including the arbitrage that lands
-before the price update does.
+## The problem
 
-Reactive Network relays the price of a Base pool to a Unichain pool in about 1.8 seconds. Hooks that raise the fee
-when that update arrives cannot touch the bot that trades in the meantime. Hikae holds back 1% of every swap for a
-few seconds; when the update lands, swaps that traded against the stale price pay the fee they skipped, which goes
-to the LPs, and everyone else gets the hold back.
+When the price moves on Base, the same pair on Unichain keeps the old price until something tells it otherwise. The
+first trader to close that gap takes the difference from the LPs (loss-versus-rebalancing,
+[Milionis et al.](https://arxiv.org/abs/2208.06046)). A Reactive contract can relay the Base price to Unichain, and a
+hook can then charge the closing trade more. But the relay takes about 1.8 s and Base makes a block every 200 ms, so a
+bot watching Base can trade before the update and pay the base fee.
 
-Built for the Reactive Omni Buildathon, track **Every Second Counts**. Everything below runs on Base Sepolia,
-Reactive Lasna and Unichain Sepolia, with the transactions linked.
+Two other projects in this buildathon, [FeeReflex](https://github.com/parthpawar1117/feereflex) and
+[Lagless](https://github.com/thesithunyein/lagless), raise the fee when the callback arrives, and both say in their
+READMEs that a bot faster than the loop pays only the base fee. Hikae's first contract, `HikaeHook`, works the same
+way. `HikaeRetroHook` is the part that handles the faster bot.
 
-## Results on testnet
+## How Hikae charges the faster bot
 
-<!-- testnet:start -->
-- **Loop latency**, Base block to the Unichain block with the callback: p50 1.8 s, p95 2.4 s, 10 of 10 callbacks delivered. One loop: [0xee78907c…](https://sepolia.basescan.org/tx/0xee78907c050cec430deb8178cacbe3ecacdce9dc6bd50bc2e3de787033beb62c) on Base → — on Lasna → [0x17a0df59…](https://sepolia.uniscan.xyz/tx/0x17a0df59df8f3192a40d1701ef33d5138d98a7d413fc06e91f6017fbcb616aa9) on Unichain.
-- **Arbitrage ahead of the callback**: the same swap paid 0.30% on the v1 pool and 0.30% on the Hikae pool, which then sent 0.00419 to its LPs and refunded 0.00578.
-- **A swap before the move** got its whole hold back (0.00997).
-- Every contract and transaction, with explorer links: [TESTNET.md](TESTNET.md).
-<!-- testnet:end -->
-- 42 Foundry tests, including the timing rule, exact-output holds and settlement inside the callback.
-
-## How a judge can check it in two minutes
-
-1. Open [TESTNET.md](TESTNET.md): every contract with its explorer and Sourcify link, ten full loops with the swap on
-   Base, the reactive transaction on Lasna and the callback on Unichain, and both race cases.
-2. In case A, compare the two swaps in the same Unichain block: the v1 pool charged the base fee; the Hikae callback
-   that followed shows the `Settled` event with the amount sent to LPs.
-3. Run `forge test`.
-
-## Why
-
-When the price moves on one chain, the same pool on another chain keeps the old price for a while. The first trader
-to close that gap takes value from the LPs: loss-versus-rebalancing
-([Milionis et al.](https://arxiv.org/abs/2208.06046)). A hook can charge that trade more, but only once it knows the
-new price. Base Sepolia makes a block every 200 ms and the Reactive loop takes about 1.8 s, so a bot watching Base
-directly gets several chances to trade first and pay the base fee.
-
-## Prior work and what is new
-
-Two projects built for this buildathon already raise a Unichain pool's fee when a Reactive callback reports a price
-move on Base: [FeeReflex](https://github.com/parthpawar1117/feereflex) and
-[Lagless](https://github.com/thesithunyein/lagless). Both document the same limit: an arbitrageur faster than the
-loop pays only the base fee. Hikae's first contract, `HikaeHook`, is the same idea, with a fee of the same shape
-(base fee plus a share of the gap above it). It is the base this project builds on, not its contribution.
-
-What Hikae adds is `HikaeRetroHook`, which charges the arbitrage that beats the callback:
-
-- **Retroactive surcharge, settled by Reactive.** Every swap leaves 1% of its unspecified amount as ERC-6909
-  claims for up to 8 s. The callback that brings the next reference settles the holds it decided: it donates the
-  skipped fee to in-range LPs and refunds the rest, so nobody has to send a second transaction. Anyone can still
-  settle a hold the callbacks have not reached.
-- **Timing rule.** Only swaps that happened after the Base price moved are charged. The callback carries the exact
-  time of the Base block, computed by the reactive contract from its number, since the Reactive log record has no
-  timestamp. A swap that came first traded at the right price and gets everything back.
-- **No way around the hold.** It applies to exact-input and exact-output swaps alike, and refunds reach the account
-  behind routers that expose `IMsgSender`.
-
-## Known limits
-
-- **Quotes.** The hold makes every swap quote about 1% worse until it is refunded. Aggregators route on quotes, so
-  benign flow could go to other pools. A smaller hold, or holding only after large moves, would soften this.
-- **Who receives the surcharge.** It goes to the LPs in range at settlement, not necessarily those who were in range
-  when the arbitrage happened, which leaves room for just-in-time liquidity.
-- **Gas.** A swap goes from about 60k to 165k gas. A callback that settles four holds uses about 260k, paid by
-  the hook's deposit with the callback proxy. Storing a hash of the hold instead of the full record is the next
-  optimization.
-- **Base block time from its number.** The Reactive log record carries the origin block number but no timestamp,
-  so the reactive contract converts it with Base Sepolia's fixed 200 ms schedule (checked over 5,000,000 blocks)
-  and sends the result as a timestamp. Every timer in Hikae runs on timestamps, as the buildathon rules ask: the
-  hold window uses Unichain block time. If Base changes its block time, `setOriginClock` resets the anchor.
-- **Price leader.** The reference pool is assumed to lead the price. In production the reference should be the pool
-  where price discovery happens.
-- Not audited.
-
-## How it works
+- Every swap on the pool leaves 1% of its output (or of its input, on exact-output swaps) as ERC-6909 claims for up
+  to 8 seconds.
+- When the next Base price arrives, the same Reactive callback settles the holds. A swap that traded toward the new
+  price after Base moved pays the part of the dynamic fee it skipped, which is donated to the LPs in range. The rest
+  of its hold is refunded.
+- A swap made before Base moved traded at the right price, so it gets the whole hold back. To tell the two apart, the
+  callback carries the time of the Base block. The Reactive log record has the block number but no timestamp, so the
+  reactive contract computes the time from Base Sepolia's fixed 200 ms schedule.
+- Refunds go to the account behind routers that expose `IMsgSender`. Holds the callbacks have not reached can be
+  settled by anyone.
 
 ```
 Base Sepolia                    Reactive Lasna                    Unichain Sepolia
 reference pool ── Swap event ──▶ HikaeReactive ── callback ───▶ HikaeHook (v1)
-(PoolManager)                    subscribes to the pool's         fee from the reference
-                                 Swap events, debounces small
-                                 moves, adds the Base block       HikaeRetroHook
-                                 time, requests a callback        v1 fee + 1% hold, settled
-                                                                  once the reference lands
+(PoolManager)                    filters the pool, skips          fee from the reference
+                                 small moves, adds the Base
+                                 block time                       HikaeRetroHook
+                                                                  v1 fee + 1% hold,
+                                                                  settled in the callback
 ```
 
-- `src/HikaeReactive.sol` (Reactive Lasna): subscribes to `Swap` events of one PoolId on the Base Sepolia
-  PoolManager. When the tick moved at least `minTickMove` since the last push, it requests a callback to the hook
-  with the new tick and the origin block and tx hash. If the destination pool lists the pair the other way round,
-  `invertTick` sends the opposite tick, which is the same price there. The deploy scripts always put hUSD as token0
-  on both chains, so the demo does not need it.
-- `src/HikaeHook.sol` (Unichain Sepolia): only works with dynamic-fee pools. In `beforeSwap` it compares the
-  pool's current tick with the reference tick:
-  - The swap moves the price toward the reference (arbitrage leg): `fee = baseFee + captureBps × (gap − baseFee)`, so closing the gap stays profitable and part of it goes to LPs,
-    capped at `maxFee`, which can never exceed 10% (`MAX_FEE_CEILING`).
-  - The swap moves the price away from the reference, or there is no fresh reference (`maxAge`): `baseFee`.
-- Only the Reactive callback proxy can call `updateReference`, and only on behalf of the configured reactive
-  contract.
-- `src/HikaeRetroHook.sol`: covers the arbitrage that lands before the callback, which the fee above
-  cannot see. It holds back `holdBps` of every swap's unspecified amount (output on exact input, input on exact
-  output) as ERC-6909 claims. Each callback settles up to four decided holds, and anyone can call
-  `settle(holdId)` for the rest: if the first reference after the swap landed within
-  `window` seconds and the swap traded toward it, the fee the swap skipped is donated to in-range LPs and the rest
-  is refunded; otherwise everything is refunded. Refunds go to the account behind routers that implement
-  `IMsgSender`, or to the router itself. A swap is charged only if the price had already moved on Base when the
-  swap's block started: a swap that came before the move traded at the right price and gets everything back. The
-  callback carries the time of the Base block, computed by the reactive contract from its number (Base Sepolia
-  makes a block every 200 ms on a fixed schedule; the log record has the block number but no timestamp). Measured in Foundry: a swap goes from ~60k to ~165k gas, and a settlement
-  costs ~43k.
+## Results on testnet
+
+<!-- testnet:start -->
+- Loop latency, from the Base block to the Unichain block with the callback: p50 1.6 s, p95 2.8 s (10 of 10 callbacks delivered). One loop: [0xb8db5d74…](https://sepolia.basescan.org/tx/0xb8db5d745fdc1866fef19700e623f01dc0885cf8a3757a90780167ebfc4b800e) on Base → [0x44e3c74d…](https://lasna.reactscan.net/tx/0x44e3c74dfebc1e42ceabf08539383e1940c0f437808813bac7ad3cf72b8bdfce) on Lasna → [0xbcabbaa4…](https://sepolia.uniscan.xyz/tx/0xbcabbaa42272fa0991e105855a2029edce44bbdbc64830a5809828bbb10bae9d) on Unichain.
+<!-- testnet:end -->
+- 42 Foundry tests, including the timing rule, exact-output holds and settlement inside the callback.
+
+To check them: open [TESTNET.md](TESTNET.md), which links every contract and transaction. In race case A, the v1 and
+Hikae swaps land in the same Unichain block; the Hikae callback that follows emits `Settled` with the amount sent to
+LPs. Then run `forge test`.
+
+## Contracts
+
+- `src/HikaeReactive.sol` (Lasna) subscribes to `Swap` events of one pool on the Base Sepolia PoolManager. It ignores
+  moves smaller than `minTickMove`, computes the Base block time and requests a callback with the new tick. If the
+  destination pool lists the tokens in the other order, `invertTick` sends the opposite tick.
+- `src/HikaeHook.sol` (Unichain) only accepts dynamic-fee pools. A swap that moves the price toward a fresh reference
+  pays `baseFee + captureBps × (gap − baseFee)`, which leaves closing the gap profitable; `maxFee` caps it and can
+  never exceed 10%. Other swaps pay `baseFee`. Only the Reactive callback proxy, acting for the configured reactive
+  contract, can update the reference.
+- `src/HikaeRetroHook.sol` (Unichain) extends `HikaeHook` with the hold described above. Each callback settles up to
+  four holds.
+
+## Known limits
+
+- The hold makes every quote about 1% worse until the refund. Aggregators route on quotes, so ordinary flow could
+  go elsewhere. A smaller hold, or holding only after large moves, would reduce this.
+- The surcharge goes to the LPs in range at settlement, who are not always the ones in range when the arbitrage
+  happened. Just-in-time liquidity could take part of it.
+- A swap costs about 165k gas instead of 60k, and a callback that settles four holds about 260k. Storing a hash of
+  each hold instead of the full record would cut most of that.
+- The Base block time comes from the block number and a fixed 200 ms schedule (checked over 5,000,000 blocks).
+  Timers themselves use timestamps, as the rules ask: the hold window runs on Unichain block time. If Base changes its
+  block time, `setOriginClock` resets the anchor.
+- The Base pool is assumed to lead the price. In production the reference should be wherever price discovery happens.
+- Not audited.
 
 ## Run the tests
 
@@ -189,7 +154,8 @@ The callback carries the origin chain ID, block and tx hash, and the hook emits 
 Unichain Sepolia whose `originTxHash` is that swap, and reports the full loop (origin event → Reactive → callback):
 
 - by block timestamps (1 s resolution; Base Sepolia makes a block every 0.2 s and Unichain Sepolia every 1 s);
-- by clock, from seeing the Base receipt to seeing the Unichain event (Unichain polled every second, the public RPC rate-limits by IP).
+- by clock, from seeing the Base receipt to seeing the Unichain event. Unichain is polled once a second because the
+  public RPC rate-limits by IP.
 
 ```bash
 cd latency && npm install && cd ..
@@ -206,7 +172,7 @@ Results from the latest run are written to [TESTNET.md](TESTNET.md) by `latency/
 
 - [x] Hook, retro hook and reactive contract, 42 Foundry tests
 - [x] Deployed on Base Sepolia, Reactive Lasna and Unichain Sepolia with `deploy.ps1`
-- [x] Full loop verified on testnet with latency per leg ([TESTNET.md](TESTNET.md))
-- [x] Race demo on testnet: arbitrage ahead of the callback (v1 vs Hikae) and a swap before the move
+- [x] Full loop on testnet with latency per leg ([TESTNET.md](TESTNET.md))
+- [x] Race demo on testnet: a swap ahead of the callback, and a swap before the move
 - [x] Holds settled inside the Reactive callback
 - [ ] Demo video (under 3 minutes)

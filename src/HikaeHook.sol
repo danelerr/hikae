@@ -39,7 +39,7 @@ contract HikaeHook is IHooks {
         uint32 maxAge; // seconds after which a reference is ignored
     }
 
-    /// @dev Hard ceiling for maxFee (10%), so the owner cannot turn the pool into a trap for swappers.
+    /// @dev Upper bound for maxFee: 10%.
     uint24 public constant MAX_FEE_CEILING = 100_000;
 
     IPoolManager public immutable poolManager;
@@ -166,7 +166,7 @@ contract HikaeHook is IHooks {
         PoolId poolId = key.toId();
         Reference memory ref = references[poolId];
 
-        // Staleness check on purpose: a reference older than maxAge is ignored.
+        // References older than maxAge are ignored.
         // forge-lint: disable-next-line(block-timestamp)
         if (ref.updatedAt == 0 || block.timestamp > uint256(ref.updatedAt) + config.maxAge) {
             return (config.baseFee, false, 0);
