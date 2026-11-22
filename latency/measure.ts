@@ -62,7 +62,10 @@ const rounds = Number(env("ROUNDS", "10"));
 const amount = BigInt(env("AMOUNT", (50n * 10n ** 18n).toString()));
 const pauseMs = Number(env("PAUSE_MS", "15000"));
 const timeoutMs = Number(env("TIMEOUT_MS", "60000"));
-const POLL_MS = 250;
+const POLL_MS = 250; // Base receipts
+// Unichain makes a block per second and its public RPC rate-limits by IP. Polling faster adds nothing: the on-chain
+// latency comes from block timestamps, not from when the script notices the event.
+const UNI_POLL_MS = Number(env("UNI_POLL_MS", "1000"));
 
 type Round = {
   round: number;
@@ -108,24 +111,42 @@ function sendSwap(zeroForOne: boolean): Hex {
   return hash as Hex;
 }
 
+/// Public RPCs balance requests across nodes that can lag a block behind each other, so a read can fail even with
+/// valid parameters. Retry instead of aborting the run.
+async function retry<T>(read: () => Promise<T>, attempts = 8): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await read();
+    } catch (error) {
+      if (i >= attempts) throw error;
+      await sleep(1000 * i); // back off: rate limits (HTTP 429) need seconds, not milliseconds
+    }
+  }
+}
+
 async function waitForCallback(baseTx: Hex, fromBlock: bigint) {
   const deadline = Date.now() + timeoutMs;
   let cursor = fromBlock;
   while (Date.now() < deadline) {
-    const head = await uni.getBlockNumber();
-    if (head >= cursor) {
-      const logs = await uni.getLogs({
-        address: hook,
-        event: referenceUpdated,
-        args: { poolId: destPoolId },
-        fromBlock: cursor,
-        toBlock: head,
-      });
-      const match = logs.find((log) => log.args.originTxHash === BigInt(baseTx));
-      if (match) return { log: match, seenAt: Date.now() };
-      cursor = head + 1n;
+    try {
+      // Stay one block behind the reported head: another node behind the same URL may not have it yet.
+      const head = (await uni.getBlockNumber()) - 1n;
+      if (head >= cursor) {
+        const logs = await uni.getLogs({
+          address: hook,
+          event: referenceUpdated,
+          args: { poolId: destPoolId },
+          fromBlock: cursor,
+          toBlock: head,
+        });
+        const match = logs.find((log) => log.args.originTxHash === BigInt(baseTx));
+        if (match) return { log: match, seenAt: Date.now() };
+        cursor = head + 1n;
+      }
+    } catch {
+      // transient RPC error or rate limit: poll again
     }
-    await sleep(POLL_MS);
+    await sleep(UNI_POLL_MS);
   }
   return undefined;
 }
@@ -143,12 +164,12 @@ async function main() {
   for (let i = 0; i < rounds; i++) {
     // Alternate direction so the price oscillates and every swap moves it past the reactive debounce.
     const zeroForOne = i % 2 === 0;
-    const uniStart = await uni.getBlockNumber();
+    const uniStart = await retry(() => uni.getBlockNumber());
 
     const baseTx = sendSwap(zeroForOne);
-    const receipt = await base.waitForTransactionReceipt({ hash: baseTx, pollingInterval: POLL_MS });
+    const receipt = await retry(() => base.waitForTransactionReceipt({ hash: baseTx, pollingInterval: POLL_MS }));
     const receiptSeenAt = Date.now();
-    const baseBlock = await base.getBlock({ blockNumber: receipt.blockNumber });
+    const baseBlock = await retry(() => base.getBlock({ blockNumber: receipt.blockNumber }));
 
     const round: Round = { round: i + 1, zeroForOne, baseTx, baseBlock: receipt.blockNumber.toString() };
     const found = await waitForCallback(baseTx, uniStart);
@@ -156,7 +177,7 @@ async function main() {
       round.missed = true;
       console.log(`#${i + 1} no callback within ${timeoutMs} ms (base ${baseTx})`);
     } else {
-      const uniBlock = await uni.getBlock({ blockNumber: found.log.blockNumber });
+      const uniBlock = await retry(() => uni.getBlock({ blockNumber: found.log.blockNumber }));
       round.uniTx = found.log.transactionHash;
       round.uniBlock = found.log.blockNumber.toString();
       round.refTick = Number(found.log.args.tick);
@@ -171,9 +192,16 @@ async function main() {
       );
     }
     results.push(round);
+    save(results, false);
     if (i < rounds - 1) await sleep(pauseMs);
   }
+  save(results, true);
+}
 
+const file = join(root, "latency", `results-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+
+/// Written after every round, so an interrupted run keeps what it measured.
+function save(results: Round[], final: boolean) {
   const delivered = results.filter((r) => !r.missed);
   const chain = delivered.map((r) => r.chainLatencyS!).sort((a, b) => a - b);
   const clock = delivered.map((r) => r.clockLatencyMs!).sort((a, b) => a - b);
@@ -188,9 +216,7 @@ async function main() {
     clockLatencyMs: { p50: percentile(clock, 50), p95: percentile(clock, 95), max: clock.at(-1) },
     onchainLatencyMs: { p50: percentile(onchain, 50), p95: percentile(onchain, 95), max: onchain.at(-1) },
   };
-  console.log(JSON.stringify(summary, null, 2));
-
-  const file = join(root, "latency", `results-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+  if (final) console.log(JSON.stringify(summary, null, 2));
   writeFileSync(
     file,
     JSON.stringify(
@@ -203,7 +229,7 @@ async function main() {
       2,
     ),
   );
-  console.log(`Saved ${file}`);
+  if (final) console.log(`Saved ${file}`);
 }
 
 main().catch((error) => {

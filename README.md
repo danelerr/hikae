@@ -118,7 +118,7 @@ The callback carries the origin chain ID, block and tx hash, and the hook emits 
 Unichain Sepolia whose `originTxHash` is that swap, and reports the full loop (origin event → Reactive → callback):
 
 - by block timestamps (1 s resolution; Base Sepolia makes a block every 0.2 s and Unichain Sepolia every 1 s);
-- by clock, from seeing the Base receipt to seeing the Unichain event (polled every 250 ms).
+- by clock, from seeing the Base receipt to seeing the Unichain event (Unichain polled every second, the public RPC rate-limits by IP).
 
 ```bash
 cd latency && npm install && cd ..
