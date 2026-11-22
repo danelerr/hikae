@@ -1,3 +1,5 @@
+<img src="assets/logo-black.svg" alt="Hikae" width="88">
+
 # Hikae
 
 *Hikae* (控え) is Japanese for what you keep back in reserve.
