@@ -167,6 +167,14 @@ donated it to in-range LPs and refunded the rest. Amounts in tokens:
 | 3 | [0x5d88c0f9…](https://sepolia.uniscan.xyz/tx/0x5d88c0f9d4e2343a63d1b0a90348949624bd54f279138a894a2ca499229d9d9a) | [0x0501cd06…](https://sepolia.uniscan.xyz/tx/0x0501cd060d5730d6cc81b3ce918ca47eb5450d2298f3535de5fb745a8fe1c170) | -99 | [0xc0c451f6…](https://sepolia.uniscan.xyz/tx/0xc0c451f6e3113cadbe36e9f3fed5b64515fd5774104c64b04c39cdff762941e5) | 0.00407 | 0.00590 |
 | 4 | [0xb1b2e39a…](https://sepolia.uniscan.xyz/tx/0xb1b2e39a501a0ffa7e43908652869cdc5cb9d809fe188358d67851ef8d962575) | [0xb2b5ce63…](https://sepolia.uniscan.xyz/tx/0xb2b5ce636cf730ccf72b20faa811867dac2bfa7d4db87ff80ecd319a29c3a0aa) | -98 | [0x42f0d006…](https://sepolia.uniscan.xyz/tx/0x42f0d0065809d64d009935841b725b4cc5cecc535981244a77f130c6ad118971) | 0.00401 | 0.00596 |
 
+#### Race demo, case A (`latency/race-2026-11-22T14-36-52-258Z.json`)
+
+Base moved ([swap](https://sepolia.basescan.org/tx/0x638bc98c6db27cd158b728d49beba64e54156ae789f64a344290c620ffec71d1)); 1.6 s later the same 1-token swap hit both Unichain pools, before either
+callback landed:
+
+- **v1 pool:** [swap](https://sepolia.uniscan.xyz/tx/0x9f09aa6de0a6b4677a159a2363d7d2f9caebc37d86aafafd309cdfd2404e84dd) paid 3000 pips, the base fee. Nothing else happens: the arbitrage beat the reference.
+- **Retro pool:** [swap](https://sepolia.uniscan.xyz/tx/0x7544bb96ea18532e286c174d99de0101fdcecbd8d19aa5067a98eba0a2e247aa) paid 3000 pips and held 0.009969105452348999. The [reference](https://sepolia.uniscan.xyz/tx/0x98fce5249f0f49992847c239a0824c9c3e082bdedcb809493772e0b2848035fc) (-98) landed one block later; [settlement](https://sepolia.uniscan.xyz/tx/0x918b3d388e65fca1768c36ccd7380c04e7d1f0aa4cfd89991c32350c82382bab) sent **0.004007** to LPs and refunded 0.005961.
+
 `latency/race.ts` reproduces this and also runs the opposite case: a swap made before the Base move, which gets its
 whole hold back.
 

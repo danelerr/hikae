@@ -9,7 +9,7 @@
 // Usage (after deploy.ps1 -Retro): node latency/race.ts
 // Reads deployments/testnet.env. Signs with cast and the keystore in ETH_KEYSTORE_ACCOUNT / ETH_PASSWORD.
 // Optional: RACE_AMOUNT (Base swap, default 500e18, about 100 ticks), UNI_AMOUNT (Unichain swaps, default 1e18),
-// ATTEMPTS (default 4).
+// ATTEMPTS (default 4), CASE (A, B or AB, default AB).
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -291,39 +291,63 @@ async function caseB() {
   console.log("\nCase B: a swap on Unichain first, Base moves 1.5 s later");
   const holdId = await read<bigint>("holdCount");
   const retroKey = `(${destToken0},${destToken1},${DYNAMIC_FEE},60,${retroHook})`;
+  // Presign the Base move so it follows the swap by 1.5 s, not by the seconds keystore decryption takes. The
+  // reference then lands well inside the hold window, and only the timing rule decides the outcome.
+  const baseNonce = await retry(() => base.getTransactionCount({ address: wallet, blockTag: "pending" }));
+  const rawBase = presign(BASE_RPC, BASE_SWAP_ROUTER, BASE_SWAP_SIG, baseSwapArgs(true), baseNonce, 400_000);
   const uniFrom = await retry(() => uni.getBlockNumber());
   const swapTx = send(UNI_RPC, demoRouter, "swap((address,address,uint24,int24,address),(bool,int256,uint160))", [retroKey, swapParams(true, uniAmount)]);
-  const swapRcpt = await receipt(uni, swapTx);
+  await receipt(uni, swapTx);
   const hold = await read<Hold>("getHold", [holdId]);
   await sleep(1500);
-  const baseTx = moveBase(true);
+  const baseTx = await base.sendRawTransaction({ serializedTransaction: rawBase });
   const baseRcpt = await receipt(base, baseTx);
+  const movedAt = originTimeMs(baseRcpt.blockNumber);
   const ref = await waitForReference(retroHook, retroPoolId, baseTx, uniFrom);
+  const landedAt = Number((await retry(() => uni.getBlock({ blockNumber: ref.blockNumber }))).timestamp);
+  const window = 8;
+  const insideWindow = landedAt <= Number(hold.time) + window;
+  const moveAfterSwap = movedAt > Number(hold.time) * 1000;
   const result = await settle(holdId);
+  const reason = !insideWindow
+    ? "the reference landed after the hold window"
+    : moveAfterSwap
+      ? "Base moved after the swap's block started: the swap traded at the right price"
+      : "the swap was not charged for another reason";
   console.log(
-    `  Swap at ${hold.time}, Base moved at ${originTimeMs(baseRcpt.blockNumber) / 1000}, reference ${ref.args.tick}.\n` +
-      `  Held ${fmt(hold.amount)}; to LPs ${fmt(result.toLPs)}, refunded ${fmt(result.refund)}.`,
+    `  Swap block at ${hold.time}, Base moved at ${movedAt / 1000}, reference ${ref.args.tick} landed at ${landedAt}` +
+      ` (window ends ${Number(hold.time) + window}).\n` +
+      `  Held ${fmt(hold.amount)}; to LPs ${fmt(result.toLPs)}, refunded ${fmt(result.refund)}. Why: ${reason}.`,
   );
   return {
     swapTx,
     swapBlockTime: Number(hold.time),
     baseTx,
-    movedAtMs: originTimeMs(baseRcpt.blockNumber),
+    movedAtMs: movedAt,
     callbackTx: ref.transactionHash,
+    callbackLandedAt: landedAt,
+    insideWindow,
+    moveAfterSwap,
     refTick: Number(ref.args.tick),
     held: fmt(hold.amount),
     settleTx: result.tx,
     toLPs: fmt(result.toLPs),
     refund: fmt(result.refund),
+    reason,
   };
 }
 
 async function main() {
   console.log(`Wallet ${wallet}, retro hook ${retroHook}, v1 hook ${v1Hook}`);
-  const a = await caseA();
-  console.log("\nResetting: Base moves back up");
-  await baseMoveAndSettleIn(false);
-  const b = await caseB();
+  const which = env("CASE", "AB").toUpperCase();
+  const a = which.includes("A") ? await caseA() : undefined;
+  let b;
+  if (which.includes("B")) {
+    // Bring Base back near the Unichain pools first, so case B starts without a price gap.
+    console.log("\nResetting: Base moves back up");
+    await baseMoveAndSettleIn(false);
+    b = await caseB();
+  }
   const file = join(root, "latency", `race-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
   writeFileSync(
     file,
