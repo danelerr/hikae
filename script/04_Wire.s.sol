@@ -11,14 +11,17 @@ import {Addresses, IDepositTo} from "./Addresses.sol";
 /// if the destination pool lists the pair in the opposite order (scripts 01 and 03 always put rUSD first).
 /// The origin clock defaults to Base Sepolia's schedule, checked on 22 Nov 2026 to be exactly 200 ms per block over
 /// the previous 5,000,000 blocks. Override with ORIGIN_ANCHOR_BLOCK, ORIGIN_ANCHOR_TIME_MS and ORIGIN_BLOCK_TIME_MS.
+/// With PREFIX=RETRO_ it reads RETRO_REACTIVE, RETRO_HOOK and RETRO_POOL_ID instead.
 /// forge script script/04_Wire.s.sol --rpc-url lasna --broadcast
 contract Wire is Signer {
     function run() external {
         require(block.chainid == Addresses.LASNA, "run on Reactive Lasna");
         _signer();
-        ReflejoReactive reactive = ReflejoReactive(payable(vm.envAddress("REACTIVE")));
-        address hook = vm.envAddress("HOOK");
-        bytes32 destPoolId = vm.envBytes32("DEST_POOL_ID");
+        string memory prefix = vm.envOr("PREFIX", string(""));
+        bool retro = bytes(prefix).length > 0;
+        ReflejoReactive reactive = ReflejoReactive(payable(vm.envAddress(string.concat(prefix, "REACTIVE"))));
+        address hook = vm.envAddress(string.concat(prefix, "HOOK"));
+        bytes32 destPoolId = vm.envBytes32(retro ? string.concat(prefix, "POOL_ID") : "DEST_POOL_ID");
         uint256 reserves = vm.envOr("RESERVES", uint256(1 ether));
         bool invertTick = vm.envOr("INVERT_TICK", false);
         uint64 anchorBlock = uint64(vm.envOr("ORIGIN_ANCHOR_BLOCK", uint256(62_159_236)));

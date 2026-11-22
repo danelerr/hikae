@@ -7,7 +7,8 @@ import {ReflejoReactive} from "../src/ReflejoReactive.sol";
 import {Addresses} from "./Addresses.sol";
 
 /// @notice Step 2, Reactive Lasna: deploy the contract that watches the Base pool.
-/// Needs REF_POOL_ID from step 1. Optional: MIN_TICK_MOVE (default 10), REACTIVE_FUNDING in wei (default 1 lREACT).
+/// Needs REF_POOL_ID from step 1. Optional: MIN_TICK_MOVE (default 10), REACTIVE_FUNDING in wei (default 1 lREACT),
+/// PREFIX for the output name (PREFIX=RETRO_ prints RETRO_REACTIVE, for a second contract that feeds the retro hook).
 /// forge script script/02_Reactive.s.sol --rpc-url lasna --broadcast
 contract DeployReactive is Signer {
     function run() external {
@@ -16,6 +17,7 @@ contract DeployReactive is Signer {
         bytes32 refPoolId = vm.envBytes32("REF_POOL_ID");
         uint24 minTickMove = uint24(vm.envOr("MIN_TICK_MOVE", uint256(10)));
         uint256 funding = vm.envOr("REACTIVE_FUNDING", uint256(1 ether));
+        string memory prefix = vm.envOr("PREFIX", string(""));
 
         vm.startBroadcast();
         ReflejoReactive reactive = new ReflejoReactive{value: funding}(
@@ -23,6 +25,6 @@ contract DeployReactive is Signer {
         );
         vm.stopBroadcast();
 
-        console2.log("REACTIVE=%s", address(reactive));
+        console2.log(string.concat(prefix, "REACTIVE=%s"), address(reactive));
     }
 }
