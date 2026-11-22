@@ -23,7 +23,24 @@ const UNI = "https://sepolia.uniscan.xyz";
 const short = (hash: string) => `${hash.slice(0, 10)}…`;
 const tx = (explorer: string, hash?: string) => (hash ? `[${short(hash)}](${explorer}/tx/${hash})` : "—");
 const addr = (explorer: string, address?: string) => (address ? `[\`${address}\`](${explorer}/address/${address})` : "—");
-const sourcify = (address?: string) => (address ? `[Sourcify](https://sourcify.dev/#/lookup/${address})` : "");
+const verification: Record<string, string> = {};
+/// Sourcify status of a contract: "exact_match", "match" or undefined when it is not verified.
+async function sourcifyStatus(chainId: number, address?: string) {
+  if (!address) return;
+  try {
+    const response = await fetch(`https://sourcify.dev/server/v2/contract/${chainId}/${address}`);
+    const data: any = await response.json();
+    if (data.match) verification[address.toLowerCase()] = data.match;
+  } catch {
+    // offline or rate-limited: leave it unknown
+  }
+}
+const sourcify = (address?: string) => {
+  if (!address) return "";
+  const match = verification[address.toLowerCase()];
+  const label = match === "exact_match" ? "verified, exact match" : match ? "verified" : "not verified";
+  return `[Sourcify: ${label}](https://sourcify.dev/#/lookup/${address})`;
+};
 const pct = (pips: number) => `${(pips / 10000).toFixed(2)}%`;
 const amount = (value: string) => Number(value).toFixed(5);
 const seconds = (ms?: number) => (ms === undefined || ms === null ? "—" : `${(ms / 1000).toFixed(1)} s`);
@@ -53,6 +70,14 @@ async function newest(prefix: string, accept: (data: any) => Promise<boolean>) {
   return undefined;
 }
 
+await Promise.all([
+  sourcifyStatus(5318007, env.REACTIVE),
+  sourcifyStatus(1301, env.HOOK),
+  sourcifyStatus(5318007, env.RETRO_REACTIVE),
+  sourcifyStatus(1301, env.RETRO_HOOK),
+  sourcifyStatus(1301, env.DEMO_ROUTER),
+]);
+
 // Only runs against the contracts deployed now count: a redeploy leaves older result files behind.
 const latency = await newest("results-", async (d) => d.results?.length > 0 && (await emittedBy(d.results[0].uniTx, env.HOOK)));
 const raceA = await newest("race-", async (d) => !!d.caseA && (await emittedBy(d.caseA.retro?.callbackTx, env.RETRO_HOOK)));
@@ -76,7 +101,7 @@ lines.push(`| \`HikaeReactive\`, feeds the retro hook | Reactive Lasna | ${addr(
 lines.push(`| \`HikaeRetroHook\` | Unichain Sepolia | ${addr(UNI, env.RETRO_HOOK)} | ${sourcify(env.RETRO_HOOK)} |`);
 lines.push(`| Demo router (\`MsgSenderRouter\`) | Unichain Sepolia | ${addr(UNI, env.DEMO_ROUTER)} | ${sourcify(env.DEMO_ROUTER)} |`);
 lines.push(`| Reference pool (Uniswap v4 PoolManager) | Base Sepolia | ${addr(BASE, "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408")} | pool id \`${env.REF_POOL_ID ?? "—"}\` |`);
-lines.push("", "The Sourcify links show the verified source when the contracts were deployed with `deploy.ps1 -Verify`.", "");
+lines.push("");
 
 if (latency) {
   const s = latency.data.summary;

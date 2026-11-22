@@ -1,0 +1,47 @@
+{
+  "explorers": {
+    "base": "https://sepolia.basescan.org/tx/",
+    "unichain": "https://sepolia.uniscan.xyz/tx/"
+  },
+  "caseA": {
+    "baseTx": "0xcbe57b66414d0c13ce4248e66f9027d6b4e40a8787f80885aaaaa034e35a8615",
+    "movedAtMs": 1795362818400,
+    "v1": {
+      "tx": "0xa8e8bbdd5113b9475f866dbca1c01eeaf8d24299c47ac333e2a1e5e4dcaf62e2",
+      "feePips": 3000
+    },
+    "retro": {
+      "tx": "0xed69d960d5f3c29bc7ba6741d9a649d53f417aa55e903d5e8320e4610c8aa221",
+      "feePaidPips": 3000,
+      "swapBlock": "68510392",
+      "reactiveTx": "0x2a7b50b34a25955f0a737a38eaf0b37186f024e6bd5a81cc7aebe3bcd86d805c",
+      "callbackTx": "0x6f3110a2e3425602582e835c819b6389296361e556be0692ce5103acad5cfd36",
+      "callbackBlock": "68510393",
+      "settledByCallback": true,
+      "refTick": -100,
+      "held": "0.009969900600091017",
+      "swapAmount": "0.996990060009101709",
+      "settleTx": "0x6f3110a2e3425602582e835c819b6389296361e556be0692ce5103acad5cfd36",
+      "toLPs": "0.004187358252038227",
+      "refund": "0.00578254234805279"
+    }
+  },
+  "caseB": {
+    "swapTx": "0x79f3fbfcb20e9cd71fa99fa68048d3803964a6fedf74fb3df817494d2e924a9d",
+    "swapBlockTime": 1795362838,
+    "baseTx": "0x326d889fa062d5bdedde3a5e1006fe9f0599844221bac294f7e21a3878c23d3c",
+    "movedAtMs": 1795362843400,
+    "reactiveTx": "0xb78839fc829936695968111c0a3f56350c72c161d67ccafe2000a5b8c1d5b141",
+    "callbackTx": "0xc552f00b931d14de7a5eb96fd12d07ba067e345c84bf3a25ee063a6171179368",
+    "callbackLandedAt": 1795362845,
+    "settledByCallback": true,
+    "insideWindow": true,
+    "moveAfterSwap": true,
+    "refTick": -99,
+    "held": "0.00996970180423704",
+    "settleTx": "0xc552f00b931d14de7a5eb96fd12d07ba067e345c84bf3a25ee063a6171179368",
+    "toLPs": "0",
+    "refund": "0.00996970180423704",
+    "reason": "Base moved after the swap's block started: the swap traded at the right price"
+  }
+}

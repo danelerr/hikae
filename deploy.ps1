@@ -67,13 +67,14 @@ function Invoke-Step([string]$Title, [string]$Script, [string]$Rpc) {
     }
 }
 
+# The project builds with two solc versions (v4-core pins 0.8.26); the deploy scripts compile with 0.8.34.
 function Invoke-Verify([string]$Address, [string]$Contract, [int]$ChainId) {
     if (-not $Address) { return }
     Write-Host "  Sourcify: $Contract at $Address (chain $ChainId)"
     $previous = $ErrorActionPreference
     $ErrorActionPreference = "Continue" # a failed verification must not stop the deploy
     try {
-        & forge verify-contract --verifier sourcify --chain-id $ChainId $Address $Contract 2>&1 |
+        & forge verify-contract --verifier sourcify --chain-id $ChainId --compiler-version 0.8.34 --watch $Address $Contract 2>&1 |
             ForEach-Object { "$_" } | Select-Object -Last 2 | ForEach-Object { Write-Host "    $_" }
     } catch {
         Write-Host "    verification failed: $_" -ForegroundColor Yellow

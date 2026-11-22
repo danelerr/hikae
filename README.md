@@ -46,6 +46,8 @@ reference pool ── Swap event ──▶ HikaeReactive ── callback ──�
 
 <!-- testnet:start -->
 - Loop latency, from the Base block to the Unichain block with the callback: p50 1.6 s, p95 2.8 s (10 of 10 callbacks delivered). One loop: [0xb8db5d74…](https://sepolia.basescan.org/tx/0xb8db5d745fdc1866fef19700e623f01dc0885cf8a3757a90780167ebfc4b800e) on Base → [0x44e3c74d…](https://lasna.reactscan.net/tx/0x44e3c74dfebc1e42ceabf08539383e1940c0f437808813bac7ad3cf72b8bdfce) on Lasna → [0xbcabbaa4…](https://sepolia.uniscan.xyz/tx/0xbcabbaa42272fa0991e105855a2029edce44bbdbc64830a5809828bbb10bae9d) on Unichain.
+- A swap ahead of the callback paid 0.30% on the v1 pool. The same swap on the Hikae pool paid 0.30%, then 0.00419 more to its LPs once the price arrived (settled in the callback); 0.00578 of its hold came back.
+- A swap made before the Base move got its whole hold back (0.00997).
 <!-- testnet:end -->
 - 42 Foundry tests, including the timing rule, exact-output holds and settlement inside the callback.
 
